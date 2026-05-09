@@ -316,3 +316,38 @@
 - 已修改学生考试列表页：新考试立即跳转，考试记录后台保存；继续考试路由提前 prefetch；按钮进入中防重复点击。
 - 已根据“所有页面首次慢”的补充反馈，给 `ClientLayout` 增加登录后的路由预取；开发模式下额外后台 fetch 主要页面，提前触发 Next dev 路由编译。
 - 未运行 `npm run build`，未运行任何 test 测试命令。
+
+---
+
+# 进度记录：AI 情景训练
+
+## 2026-05-09
+
+- 已在隔离 worktree `/data/project/gjj/wenda/.worktrees/ai-scenario-training` 实现 AI 情景训练第一版闭环。
+- 已新增 AI 训练数据模型和 SQLite 持久化：
+  - 训练场景、场景文档、评分维度、红线规则、训练会话、训练报告。
+  - 兼容早期本地 legacy payload，写入前会正规化为当前字段模型。
+- 已新增管理员“情景训练”场景管理：
+  - 支持新建、编辑、发布、下线、删除场景。
+  - 支持 DOCX/TXT/MD 本地资料上传，不支持 PDF。
+  - 支持编辑评分维度和红线规则，并校验发布时总分为 100。
+- 已新增 AI 接口：
+  - `/api/ai-training/chat` 生成角色扮演回复。
+  - `/api/ai-training/report` 生成结构化训练报告。
+  - 路由会校验服务端已保存会话，使用系统指令隔离不可信资料/对话，报告 JSON 严格校验。
+- 已新增员工 AI 情景训练入口：
+  - 员工只看到已发布场景。
+  - 可开始训练、进入多轮对话、结束训练并生成报告。
+  - AI 回复失败时保留员工已发送消息；报告生成失败时保留进行中会话。
+- 已新增报告和记录页：
+  - 员工可查看自己的训练报告。
+  - 管理员可查看全部训练记录，并通过记录页进入报告详情。
+  - 管理员查看员工会话/报告为只读，不能冒充员工继续训练。
+- 已验证：
+  - `APP_BASE_URL=http://localhost:3017 npm run test:ai-training-state` 通过。
+  - `APP_BASE_URL=http://localhost:3017 npm run test:ai-training-flow` 通过。
+  - `npx tsc --noEmit --pretty false` 通过。
+  - `npm run build` 通过。
+- 已知限制：
+  - `npm run lint` 仍失败，失败点来自实现前已存在的 React lint 基线问题，包括旧页面 effect 内同步 setState、考试页 render 阶段 `Date.now()`、`FeishuRuntimeScripts` 的 script 策略 warning。
+  - AI 情景训练分数仅作训练反馈，不影响考试成绩、通过状态或重考状态。
