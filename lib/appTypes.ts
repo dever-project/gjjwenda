@@ -11,6 +11,11 @@ export type Difficulty = '基础' | '中等' | '高';
 export type GradingMode = 'auto' | 'manual';
 export type AttemptGradingStatus = 'not_required' | 'pending' | 'completed';
 export type RedlinePolicy = 'fail_on_any' | 'score_only';
+export type AiTrainingDifficulty = '基础' | '中等' | '高';
+export type AiTrainingScenarioStatus = 'draft' | 'published' | 'archived';
+export type AiTrainingSessionStatus = 'in_progress' | 'completed';
+export type AiTrainingMessageRole = 'ai' | 'trainee';
+export type AiTrainingRedlineSeverity = 'low' | 'medium' | 'high';
 
 export interface Question {
   id: string;
@@ -259,6 +264,83 @@ export interface SyncRun {
   finishedAt?: number;
 }
 
+export interface AiTrainingDocument {
+  id: string;
+  title: string;
+  content: string;
+  sourceUrl?: string;
+}
+
+export interface AiTrainingRubricItem {
+  id: string;
+  title: string;
+  description: string;
+  maxScore: number;
+}
+
+export interface AiTrainingRedlineRule {
+  id: string;
+  title: string;
+  description: string;
+  severity: AiTrainingRedlineSeverity;
+}
+
+export interface AiTrainingScenario {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: AiTrainingDifficulty;
+  status: AiTrainingScenarioStatus;
+  rolePrompt: string;
+  traineeGoal: string;
+  scoringRubric: AiTrainingRubricItem[];
+  redlineRules: AiTrainingRedlineRule[];
+  documents: AiTrainingDocument[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AiTrainingMessage {
+  id: string;
+  role: AiTrainingMessageRole;
+  content: string;
+  createdAt: number;
+}
+
+export interface AiTrainingDimensionScore {
+  rubricItemId: string;
+  score: number;
+  comment?: string;
+}
+
+export interface AiTrainingRedlineHit {
+  ruleId: string;
+  severity: AiTrainingRedlineSeverity;
+  messageId?: string;
+  excerpt?: string;
+  comment?: string;
+}
+
+export interface AiTrainingReport {
+  totalScore: number;
+  maxScore: number;
+  dimensionScores: AiTrainingDimensionScore[];
+  redlineHits: AiTrainingRedlineHit[];
+  summary: string;
+  generatedAt: number;
+}
+
+export interface AiTrainingSession {
+  id: string;
+  scenarioId: string;
+  userId: string;
+  status: AiTrainingSessionStatus;
+  messages: AiTrainingMessage[];
+  report?: AiTrainingReport;
+  startedAt: number;
+  completedAt?: number;
+}
+
 export interface AppData {
   users: User[];
   questions: Question[];
@@ -270,6 +352,8 @@ export interface AppData {
   knowledgeArticles: KnowledgeArticle[];
   trainingProgress: TrainingProgress[];
   syncRuns: SyncRun[];
+  aiTrainingScenarios: AiTrainingScenario[];
+  aiTrainingSessions: AiTrainingSession[];
 }
 
 export const DEFAULT_USERS: User[] = [
@@ -302,5 +386,7 @@ export function createEmptyAppData(): AppData {
     knowledgeArticles: [],
     trainingProgress: [],
     syncRuns: [],
+    aiTrainingScenarios: [],
+    aiTrainingSessions: [],
   };
 }

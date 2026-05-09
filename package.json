@@ -8,6 +8,7 @@
     "package:release": "bash scripts/package-release.sh",
     "start": "next start",
     "lint": "eslint .",
+    "test:ai-training-state": "node scripts/test-ai-training-state.mjs",
     "clean": "next clean"
   },
   "dependencies": {

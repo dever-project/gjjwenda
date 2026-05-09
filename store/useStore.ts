@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type {
+  AiTrainingScenario,
+  AiTrainingSession,
   AppData,
   DynamicApp,
   ExamAttempt,
@@ -16,6 +18,20 @@ import { DEFAULT_USERS, createEmptyAppData } from '@/lib/appTypes';
 import { fetchAppState, saveAppState, saveExamAttempt } from '@/lib/appStateClient';
 
 export type {
+  AiTrainingDifficulty,
+  AiTrainingDimensionScore,
+  AiTrainingDocument,
+  AiTrainingMessage,
+  AiTrainingMessageRole,
+  AiTrainingRedlineHit,
+  AiTrainingRedlineRule,
+  AiTrainingRedlineSeverity,
+  AiTrainingReport,
+  AiTrainingRubricItem,
+  AiTrainingScenario,
+  AiTrainingScenarioStatus,
+  AiTrainingSession,
+  AiTrainingSessionStatus,
   AnswerRecord,
   AppData,
   Difficulty,
@@ -75,6 +91,9 @@ interface AppState extends AppData {
   setSyncRuns: (syncRuns: SyncRun[]) => Promise<void>;
   addDynamicApp: (app: DynamicApp) => Promise<void>;
   deleteDynamicApp: (id: string) => Promise<void>;
+  upsertAiTrainingScenario: (scenario: AiTrainingScenario) => Promise<void>;
+  deleteAiTrainingScenario: (id: string) => Promise<void>;
+  upsertAiTrainingSession: (session: AiTrainingSession) => Promise<void>;
 }
 
 type StateUpdater = Partial<AppState> | ((state: AppState) => Partial<AppState>);
@@ -148,6 +167,8 @@ function toAppData(state: AppState): AppData {
     knowledgeArticles: state.knowledgeArticles,
     trainingProgress: state.trainingProgress,
     syncRuns: state.syncRuns,
+    aiTrainingScenarios: state.aiTrainingScenarios,
+    aiTrainingSessions: state.aiTrainingSessions,
   };
 }
 
@@ -179,6 +200,8 @@ function hasImportedData(data: AppData) {
     || data.knowledgeArticles.length > 0
     || data.trainingProgress.length > 0
     || data.syncRuns.length > 0
+    || data.aiTrainingScenarios.length > 0
+    || data.aiTrainingSessions.length > 0
   );
 }
 
@@ -206,6 +229,14 @@ function migrateLegacyDataIfNeeded(sqliteData: AppData) {
     knowledgeArticles: sqliteData.knowledgeArticles,
     trainingProgress: sqliteData.trainingProgress,
     syncRuns: sqliteData.syncRuns,
+    aiTrainingScenarios: listOrFallback<AiTrainingScenario>(
+      legacyState.aiTrainingScenarios,
+      sqliteData.aiTrainingScenarios
+    ),
+    aiTrainingSessions: listOrFallback<AiTrainingSession>(
+      legacyState.aiTrainingSessions,
+      sqliteData.aiTrainingSessions
+    ),
   };
 
   return { data, migrated: hasImportedData(data) };
@@ -423,5 +454,30 @@ export const useStore = create<AppState>()((set, get) => {
       updateAndPersist((state) => ({
         dynamicApps: state.dynamicApps.filter((app) => app.id !== id),
       })),
+    upsertAiTrainingScenario: (scenario) =>
+      updateAndPersist((state) => {
+        const exists = state.aiTrainingScenarios.some((item) => item.id === scenario.id);
+
+        return {
+          aiTrainingScenarios: exists
+            ? state.aiTrainingScenarios.map((item) => (item.id === scenario.id ? scenario : item))
+            : [...state.aiTrainingScenarios, scenario],
+        };
+      }),
+    deleteAiTrainingScenario: (id) =>
+      updateAndPersist((state) => ({
+        aiTrainingScenarios: state.aiTrainingScenarios.filter((scenario) => scenario.id !== id),
+        aiTrainingSessions: state.aiTrainingSessions.filter((session) => session.scenarioId !== id),
+      })),
+    upsertAiTrainingSession: (session) =>
+      updateAndPersist((state) => {
+        const exists = state.aiTrainingSessions.some((item) => item.id === session.id);
+
+        return {
+          aiTrainingSessions: exists
+            ? state.aiTrainingSessions.map((item) => (item.id === session.id ? session : item))
+            : [...state.aiTrainingSessions, session],
+        };
+      }),
   };
 });

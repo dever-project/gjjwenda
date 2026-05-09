@@ -1,4 +1,6 @@
 import type {
+  AiTrainingScenario,
+  AiTrainingSession,
   AppData,
   DynamicApp,
   ExamAttempt,
@@ -143,6 +145,32 @@ export function ensureAppStateSchema() {
       articles_imported INTEGER NOT NULL DEFAULT 0,
       started_at INTEGER NOT NULL,
       finished_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_training_scenarios (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      difficulty TEXT NOT NULL,
+      status TEXT NOT NULL,
+      role_prompt TEXT NOT NULL,
+      trainee_goal TEXT NOT NULL,
+      scoring_rubric TEXT NOT NULL,
+      redline_rules TEXT NOT NULL,
+      documents TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_training_sessions (
+      id TEXT PRIMARY KEY,
+      scenario_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      messages TEXT NOT NULL,
+      report TEXT,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER
     );
   `);
 
@@ -493,6 +521,54 @@ function selectSyncRuns(): SyncRun[] {
   }));
 }
 
+function selectAiTrainingScenarios(): AiTrainingScenario[] {
+  const rows = getDatabase().prepare(`
+    SELECT *
+    FROM ai_training_scenarios
+    ORDER BY updated_at DESC, created_at DESC, id ASC
+  `).all() as Row[];
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title),
+    description: String(row.description),
+    difficulty:
+      row.difficulty === '中等' ? '中等' : row.difficulty === '高' ? '高' : '基础',
+    status:
+      row.status === 'published'
+        ? 'published'
+        : row.status === 'archived'
+          ? 'archived'
+          : 'draft',
+    rolePrompt: String(row.role_prompt),
+    traineeGoal: String(row.trainee_goal),
+    scoringRubric: parseJson(row.scoring_rubric, []),
+    redlineRules: parseJson(row.redline_rules, []),
+    documents: parseJson(row.documents, []),
+    createdAt: numberValue(row.created_at, Date.now()),
+    updatedAt: numberValue(row.updated_at, Date.now()),
+  }));
+}
+
+function selectAiTrainingSessions(): AiTrainingSession[] {
+  const rows = getDatabase().prepare(`
+    SELECT *
+    FROM ai_training_sessions
+    ORDER BY started_at DESC, id ASC
+  `).all() as Row[];
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    scenarioId: String(row.scenario_id),
+    userId: String(row.user_id),
+    status: row.status === 'completed' ? 'completed' : 'in_progress',
+    messages: parseJson(row.messages, []),
+    report: parseJson<AiTrainingSession['report'] | null>(row.report, null) ?? undefined,
+    startedAt: numberValue(row.started_at, Date.now()),
+    completedAt: optionalNumber(row.completed_at),
+  }));
+}
+
 export function readAppState(): AppData {
   ensureAppStateSchema();
   seedDefaultUsers();
@@ -509,6 +585,8 @@ export function readAppState(): AppData {
     knowledgeArticles: selectKnowledgeArticles(),
     trainingProgress: selectTrainingProgress(),
     syncRuns: selectSyncRuns(),
+    aiTrainingScenarios: selectAiTrainingScenarios(),
+    aiTrainingSessions: selectAiTrainingSessions(),
   };
 }
 
@@ -637,10 +715,25 @@ export function replaceAppState(data: AppData): AppData {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const insertAiTrainingScenario = db.prepare(`
+    INSERT INTO ai_training_scenarios (
+      id, title, description, difficulty, status, role_prompt, trainee_goal,
+      scoring_rubric, redline_rules, documents, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertAiTrainingSession = db.prepare(`
+    INSERT INTO ai_training_sessions (
+      id, scenario_id, user_id, status, messages, report, started_at, completed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
   db.exec('BEGIN IMMEDIATE;');
   try {
     db.exec(`
+      DELETE FROM ai_training_sessions;
+      DELETE FROM ai_training_scenarios;
       DELETE FROM exam_attempts;
       DELETE FROM published_exams;
       DELETE FROM exam_configs;
@@ -804,6 +897,36 @@ export function replaceAppState(data: AppData): AppData {
         syncRun.articlesImported,
         syncRun.startedAt,
         syncRun.finishedAt ?? null
+      );
+    });
+
+    data.aiTrainingScenarios.forEach((scenario) => {
+      insertAiTrainingScenario.run(
+        scenario.id,
+        scenario.title,
+        scenario.description,
+        scenario.difficulty,
+        scenario.status,
+        scenario.rolePrompt,
+        scenario.traineeGoal,
+        stringifyJson(scenario.scoringRubric),
+        stringifyJson(scenario.redlineRules),
+        stringifyJson(scenario.documents),
+        scenario.createdAt,
+        scenario.updatedAt
+      );
+    });
+
+    data.aiTrainingSessions.forEach((session) => {
+      insertAiTrainingSession.run(
+        session.id,
+        session.scenarioId,
+        session.userId,
+        session.status,
+        stringifyJson(session.messages),
+        stringifyJson(session.report ?? null),
+        session.startedAt,
+        session.completedAt ?? null
       );
     });
 

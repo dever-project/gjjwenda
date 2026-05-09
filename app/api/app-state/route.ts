@@ -24,6 +24,8 @@ function normalizeAppData(payload: unknown): AppData {
     knowledgeArticles: asArray(data.knowledgeArticles),
     trainingProgress: asArray(data.trainingProgress),
     syncRuns: asArray(data.syncRuns),
+    aiTrainingScenarios: asArray(data.aiTrainingScenarios),
+    aiTrainingSessions: asArray(data.aiTrainingSessions),
   };
 }
 
