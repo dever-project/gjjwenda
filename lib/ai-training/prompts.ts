@@ -175,7 +175,10 @@ function isComplianceDimension(score: AiTrainingDimensionScore) {
 
 function capHighRedlineComplianceScore(report: AiTrainingReport): AiTrainingReport {
   if (!report.redlineHits.some((hit) => hit.severity === 'high')) {
-    return report;
+    return {
+      ...report,
+      totalScore: getDimensionTotalScore(report.dimensionScores),
+    };
   }
 
   let hasAdjustedComplianceScore = false;
@@ -198,7 +201,13 @@ function capHighRedlineComplianceScore(report: AiTrainingReport): AiTrainingRepo
   return {
     ...report,
     dimensionScores,
+    totalScore: getDimensionTotalScore(dimensionScores),
   };
+}
+
+function getDimensionTotalScore(dimensionScores: AiTrainingDimensionScore[]) {
+  const total = dimensionScores.reduce((sum, score) => sum + score.score, 0);
+  return Math.max(0, Math.min(100, Math.round(total)));
 }
 
 export function getScenarioKnowledge(scenario: AiTrainingScenario) {
