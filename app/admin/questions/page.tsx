@@ -10,51 +10,13 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { extractDocxText } from '@/lib/ai-training/documents';
 import {
   createDocxExamConfigs,
   parseConfigRows,
   parseQuestionRows,
   parseTeacherDocxQuestions,
 } from '@/lib/training/questionImport';
-
-function extractDocxText(buffer: ArrayBuffer) {
-  const cfb = (XLSX as any).CFB.read(new Uint8Array(buffer), { type: 'array' });
-  const documentFile =
-    (XLSX as any).CFB.find(cfb, '/word/document.xml') ||
-    (XLSX as any).CFB.find(cfb, 'document.xml');
-
-  if (!documentFile?.content) {
-    throw new Error('DOCX 中未找到 word/document.xml');
-  }
-
-  const xml = new TextDecoder('utf-8').decode(documentFile.content);
-  const xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
-  if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
-    throw new Error('DOCX XML 解析失败');
-  }
-
-  const paragraphs = xmlDoc.getElementsByTagName('w:p').length > 0
-    ? Array.from(xmlDoc.getElementsByTagName('w:p'))
-    : Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
-
-  return paragraphs
-    .map((paragraph) => {
-      const parts: string[] = [];
-      paragraph.querySelectorAll('*').forEach((node) => {
-        if (node.localName === 't' || node.localName === 'delText') {
-          parts.push(node.textContent ?? '');
-        } else if (node.localName === 'tab') {
-          parts.push('\t');
-        } else if (node.localName === 'br') {
-          parts.push('\n');
-        }
-      });
-
-      return parts.join('').trim();
-    })
-    .filter(Boolean)
-    .join('\n');
-}
 
 export default function QuestionsPage() {
   const {
