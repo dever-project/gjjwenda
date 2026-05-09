@@ -38,13 +38,29 @@ function assert(condition, message) {
   }
 }
 
-const scenarioId = 'smoke-ai-training-scenario';
-const sessionId = 'smoke-ai-training-session';
+const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const scenarioId = `smoke-ai-training-scenario-${runId}`;
+const sessionId = `smoke-ai-training-session-${runId}`;
 const now = Date.now();
-let originalState;
+const createdScenarioIds = new Set([scenarioId]);
+const createdSessionIds = new Set([sessionId]);
+
+async function cleanupSmokeData() {
+  const currentState = await readAppState();
+
+  await writeAppState({
+    ...currentState,
+    aiTrainingScenarios: (currentState.aiTrainingScenarios ?? []).filter(
+      (scenario) => !createdScenarioIds.has(scenario.id)
+    ),
+    aiTrainingSessions: (currentState.aiTrainingSessions ?? []).filter(
+      (session) => !createdSessionIds.has(session.id)
+    ),
+  });
+}
 
 try {
-  originalState = await readAppState();
+  const currentState = await readAppState();
 
   const scenario = {
     id: scenarioId,
@@ -113,9 +129,9 @@ try {
   };
 
   await writeAppState({
-    ...originalState,
-    aiTrainingScenarios: [...(originalState.aiTrainingScenarios ?? []), scenario],
-    aiTrainingSessions: [...(originalState.aiTrainingSessions ?? []), session],
+    ...currentState,
+    aiTrainingScenarios: [...(currentState.aiTrainingScenarios ?? []), scenario],
+    aiTrainingSessions: [...(currentState.aiTrainingSessions ?? []), session],
   });
 
   const persistedState = await readAppState();
@@ -132,7 +148,5 @@ try {
 
   console.log('AI training state persistence smoke test passed');
 } finally {
-  if (originalState) {
-    await writeAppState(originalState);
-  }
+  await cleanupSmokeData();
 }
