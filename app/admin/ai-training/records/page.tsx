@@ -150,8 +150,10 @@ export default function AiTrainingRecordsPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {session.report?.redlineHits.length ? (
-                        <Badge variant="destructive">{session.report.redlineHits.length}</Badge>
+                      {session.report ? (
+                        <Badge variant={session.report.redlineHits.length > 0 ? 'destructive' : 'outline'}>
+                          {session.report.redlineHits.length}
+                        </Badge>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
