@@ -181,13 +181,11 @@ function capHighRedlineComplianceScore(report: AiTrainingReport): AiTrainingRepo
     };
   }
 
-  let hasAdjustedComplianceScore = false;
   const dimensionScores = report.dimensionScores.map((score) => {
-    if (hasAdjustedComplianceScore || !isComplianceDimension(score)) {
+    if (!isComplianceDimension(score)) {
       return score;
     }
 
-    hasAdjustedComplianceScore = true;
     const cappedScore = Math.min(score.score, Math.min(score.maxScore, HIGH_REDLINE_COMPLIANCE_CAP));
     const capReason = '命中高严重红线，合规/安全维度得分按规则上限 8 分。';
 
