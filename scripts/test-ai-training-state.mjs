@@ -40,10 +40,12 @@ function assert(condition, message) {
 
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const scenarioId = `smoke-ai-training-scenario-${runId}`;
+const legacyScenarioId = `smoke-ai-training-legacy-scenario-${runId}`;
 const sessionId = `smoke-ai-training-session-${runId}`;
+const legacySessionId = `smoke-ai-training-legacy-session-${runId}`;
 const now = Date.now();
-const createdScenarioIds = new Set([scenarioId]);
-const createdSessionIds = new Set([sessionId]);
+const createdScenarioIds = new Set([scenarioId, legacyScenarioId]);
+const createdSessionIds = new Set([sessionId, legacySessionId]);
 
 async function cleanupSmokeData() {
   const currentState = await readAppState();
@@ -136,16 +138,82 @@ try {
     startedAt: now,
     completedAt: now,
   };
+  const legacyScenario = {
+    id: legacyScenarioId,
+    title: 'Legacy AI Training Scenario',
+    description: 'Legacy opening text doubles as the opening message.',
+    difficulty: '高',
+    status: 'published',
+    rolePrompt: 'Legacy customer role prompt.',
+    traineeGoal: 'Legacy trainee goal.',
+    scoringRubric: [
+      {
+        id: 'legacy-rubric',
+        title: 'Legacy rubric title',
+        description: 'Legacy rubric description.',
+        maxScore: 20,
+      },
+    ],
+    redlineRules: [
+      {
+        id: 'legacy-redline',
+        title: 'Legacy redline',
+        description: 'Legacy redline description.',
+        severity: 'high',
+      },
+    ],
+    documents: [
+      {
+        id: 'legacy-document',
+        title: 'legacy-reference.docx',
+        content: 'Legacy document content.',
+      },
+    ],
+    createdAt: now - 10,
+    updatedAt: now - 5,
+  };
+  const legacySession = {
+    id: legacySessionId,
+    scenarioId: legacyScenarioId,
+    userId: 'u1',
+    status: 'completed',
+    messages: [],
+    report: {
+      totalScore: 18,
+      maxScore: 20,
+      dimensionScores: [
+        {
+          rubricItemId: 'legacy-rubric',
+          score: 18,
+          comment: 'Legacy report comment should become reason.',
+        },
+      ],
+      redlineHits: [
+        {
+          ruleId: 'legacy-redline',
+          severity: 'high',
+          excerpt: 'Legacy risky quote.',
+          comment: 'Legacy redline comment should become reason.',
+        },
+      ],
+      summary: 'Legacy report summary.',
+      generatedAt: now,
+    },
+    startedAt: now,
+    completedAt: now,
+  };
 
   await writeAppState({
     ...currentState,
-    aiTrainingScenarios: [...(currentState.aiTrainingScenarios ?? []), scenario],
-    aiTrainingSessions: [...(currentState.aiTrainingSessions ?? []), session],
+    aiTrainingScenarios: [...(currentState.aiTrainingScenarios ?? []), scenario, legacyScenario],
+    aiTrainingSessions: [...(currentState.aiTrainingSessions ?? []), session, legacySession],
   });
 
   const persistedState = await readAppState();
   const persistedScenario = persistedState.aiTrainingScenarios?.find((item) => item.id === scenarioId);
+  const persistedLegacyScenario = persistedState.aiTrainingScenarios?.find((item) => item.id === legacyScenarioId);
   const persistedSession = persistedState.aiTrainingSessions?.find((item) => item.id === sessionId);
+  const persistedLegacySession = persistedState.aiTrainingSessions?.find((item) => item.id === legacySessionId);
   assert(
     Array.isArray(persistedState.aiTrainingScenarios) && persistedScenario,
     'aiTrainingScenarios did not persist'
@@ -172,6 +240,24 @@ try {
       persistedSession.report?.strengths?.[0] === session.report.strengths[0] &&
       persistedSession.report?.suggestedPhrases?.[0] === session.report.suggestedPhrases[0],
     'aiTrainingSessions did not keep approved report shape'
+  );
+  assert(
+    persistedLegacyScenario?.name === legacyScenario.title &&
+      persistedLegacyScenario.aiRole === legacyScenario.rolePrompt &&
+      persistedLegacyScenario.traineeTask === legacyScenario.traineeGoal &&
+      persistedLegacyScenario.openingMessage === legacyScenario.description &&
+      persistedLegacyScenario.scoringRubric[0]?.name === legacyScenario.scoringRubric[0].title &&
+      persistedLegacyScenario.documents[0]?.fileName === legacyScenario.documents[0].title &&
+      persistedLegacyScenario.documents[0]?.fileType === 'docx' &&
+      persistedLegacyScenario.documents[0]?.text === legacyScenario.documents[0].content,
+    'legacy aiTrainingScenarios did not normalize to approved shape'
+  );
+  assert(
+    persistedLegacySession?.report?.dimensionScores[0]?.reason === legacySession.report.dimensionScores[0].comment &&
+      persistedLegacySession.report?.redlineHits[0]?.quote === legacySession.report.redlineHits[0].excerpt &&
+      persistedLegacySession.report?.redlineHits[0]?.reason === legacySession.report.redlineHits[0].comment &&
+      persistedLegacySession.report?.summary === legacySession.report.summary,
+    'legacy aiTrainingSessions did not normalize report shape'
   );
 
   console.log('AI training state persistence smoke test passed');

@@ -1,6 +1,8 @@
 import type {
   AiTrainingDocument,
   AiTrainingRedlineHit,
+  AiTrainingRedlineRule,
+  AiTrainingRedlineSeverity,
   AiTrainingReport,
   AiTrainingRubricItem,
   AiTrainingScenario,
@@ -268,32 +270,42 @@ function stringValue(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
 }
 
-function aiTrainingFileType(value: unknown, fileName: string): AiTrainingDocument['fileType'] {
+function aiTrainingFileType(
+  value: unknown,
+  fileName: string,
+  sourceUrl?: string
+): AiTrainingDocument['fileType'] {
   if (value === 'docx' || value === 'txt' || value === 'md') {
     return value;
   }
 
-  const lowerFileName = fileName.toLowerCase();
-  if (lowerFileName.endsWith('.docx')) return 'docx';
-  if (lowerFileName.endsWith('.txt')) return 'txt';
-  return 'md';
+  const lowerName = `${fileName} ${sourceUrl ?? ''}`.toLowerCase();
+  if (lowerName.includes('.docx')) return 'docx';
+  if (lowerName.includes('.md')) return 'md';
+  if (lowerName.includes('.txt')) return 'txt';
+  return 'txt';
 }
 
-function normalizeAiTrainingDocuments(value: unknown): AiTrainingDocument[] {
+function normalizeAiTrainingDocuments(value: unknown, fallbackUploadedAt = Date.now()): AiTrainingDocument[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value.map((document, index) => {
     const data = recordValue(document);
-    const fileName = optionalString(data.fileName) ?? optionalString(data.title) ?? `资料 ${index + 1}`;
+    const sourceUrl = optionalString(data.sourceUrl);
+    const fileName =
+      optionalString(data.fileName) ??
+      optionalString(data.title) ??
+      optionalString(sourceUrl?.split('/').filter(Boolean).pop()) ??
+      `资料 ${index + 1}.txt`;
 
     return {
       id: stringValue(data.id, `aitdoc_legacy_${index}`),
       fileName,
-      fileType: aiTrainingFileType(data.fileType, fileName),
+      fileType: aiTrainingFileType(data.fileType, fileName, sourceUrl),
       text: stringValue(data.text, stringValue(data.content)),
-      uploadedAt: numberValue(data.uploadedAt, numberValue(data.createdAt, Date.now())),
+      uploadedAt: numberValue(data.uploadedAt, numberValue(data.createdAt, fallbackUploadedAt)),
     };
   });
 }
@@ -315,6 +327,27 @@ function normalizeAiTrainingRubric(value: unknown): AiTrainingRubricItem[] {
   });
 }
 
+function normalizeAiTrainingSeverity(value: unknown, fallback: AiTrainingRedlineSeverity = 'medium') {
+  return value === 'low' || value === 'medium' || value === 'high' ? value : fallback;
+}
+
+function normalizeAiTrainingRedlineRules(value: unknown): AiTrainingRedlineRule[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((rule, index) => {
+    const data = recordValue(rule);
+
+    return {
+      id: stringValue(data.id, `redline_legacy_${index}`),
+      title: stringValue(data.title, `红线规则 ${index + 1}`),
+      description: stringValue(data.description),
+      severity: normalizeAiTrainingSeverity(data.severity),
+    };
+  });
+}
+
 function normalizeAiTrainingRedlineHits(value: unknown): AiTrainingRedlineHit[] {
   if (!Array.isArray(value)) {
     return [];
@@ -322,14 +355,11 @@ function normalizeAiTrainingRedlineHits(value: unknown): AiTrainingRedlineHit[] 
 
   return value.map((hit, index) => {
     const data = recordValue(hit);
-    const severity = data.severity === 'low' || data.severity === 'medium' || data.severity === 'high'
-      ? data.severity
-      : 'medium';
 
     return {
       ruleId: optionalString(data.ruleId),
       title: stringValue(data.title, `红线命中 ${index + 1}`),
-      severity,
+      severity: normalizeAiTrainingSeverity(data.severity),
       quote: stringValue(data.quote, stringValue(data.excerpt)),
       reason: stringValue(data.reason, stringValue(data.comment)),
       suggestion: stringValue(data.suggestion),
@@ -369,6 +399,57 @@ function normalizeAiTrainingReport(value: unknown): AiTrainingReport | undefined
       : [],
     summary: stringValue(data.summary),
     generatedAt: numberValue(data.generatedAt, Date.now()),
+  };
+}
+
+function normalizeAiTrainingScenarioPayload(value: unknown, index: number): AiTrainingScenario {
+  const data = recordValue(value);
+  const now = Date.now();
+  const updatedAt = numberValue(data.updatedAt, now);
+  const name = optionalString(data.name) ?? optionalString(data.title) ?? `情景训练 ${index + 1}`;
+  const difficulty =
+    data.difficulty === '基础' || data.difficulty === '中等' || data.difficulty === '高'
+      ? data.difficulty
+      : '中等';
+  const status =
+    data.status === 'published'
+      ? 'published'
+      : data.status === 'archived'
+        ? 'archived'
+        : 'draft';
+  const description = stringValue(data.description);
+
+  return {
+    id: stringValue(data.id, `scenario_legacy_${index}`),
+    name,
+    stage: optionalString(data.stage),
+    description,
+    difficulty,
+    aiRole: optionalString(data.aiRole) ?? stringValue(data.rolePrompt),
+    traineeTask: optionalString(data.traineeTask) ?? stringValue(data.traineeGoal),
+    openingMessage: optionalString(data.openingMessage) ?? description,
+    scoringRubric: normalizeAiTrainingRubric(data.scoringRubric),
+    redlineRules: normalizeAiTrainingRedlineRules(data.redlineRules),
+    documents: normalizeAiTrainingDocuments(data.documents, updatedAt),
+    status,
+    createdAt: numberValue(data.createdAt, updatedAt),
+    updatedAt,
+  };
+}
+
+function normalizeAiTrainingSessionPayload(value: unknown, index: number): AiTrainingSession {
+  const data = recordValue(value);
+  const now = Date.now();
+
+  return {
+    id: stringValue(data.id, `aitsession_legacy_${index}`),
+    scenarioId: stringValue(data.scenarioId),
+    userId: stringValue(data.userId),
+    status: data.status === 'completed' ? 'completed' : 'in_progress',
+    messages: Array.isArray(data.messages) ? data.messages : [],
+    report: normalizeAiTrainingReport(data.report),
+    startedAt: numberValue(data.startedAt, now),
+    completedAt: optionalNumber(data.completedAt),
   };
 }
 
@@ -857,6 +938,12 @@ export function replaceAppState(data: AppData): AppData {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const aiTrainingScenarios = Array.isArray(data.aiTrainingScenarios)
+    ? data.aiTrainingScenarios.map((scenario, index) => normalizeAiTrainingScenarioPayload(scenario, index))
+    : [];
+  const aiTrainingSessions = Array.isArray(data.aiTrainingSessions)
+    ? data.aiTrainingSessions.map((session, index) => normalizeAiTrainingSessionPayload(session, index))
+    : [];
 
   db.exec('BEGIN IMMEDIATE;');
   try {
@@ -1029,7 +1116,7 @@ export function replaceAppState(data: AppData): AppData {
       );
     });
 
-    data.aiTrainingScenarios.forEach((scenario) => {
+    aiTrainingScenarios.forEach((scenario) => {
       insertAiTrainingScenario.run(
         scenario.id,
         scenario.name,
@@ -1051,7 +1138,7 @@ export function replaceAppState(data: AppData): AppData {
       );
     });
 
-    data.aiTrainingSessions.forEach((session) => {
+    aiTrainingSessions.forEach((session) => {
       insertAiTrainingSession.run(
         session.id,
         session.scenarioId,
