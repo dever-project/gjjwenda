@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
-import { buildReportPrompt, parseReportJson } from '@/lib/ai-training/prompts';
+import { buildReportPrompt, hasValidAiTrainingMessages, parseReportJson } from '@/lib/ai-training/prompts';
 import type { AiTrainingMessage } from '@/lib/appTypes';
 import { readAppState } from '@/lib/server/appStateRepository';
 
@@ -31,8 +31,8 @@ function validatePayload(payload: unknown): { data?: ValidPayload; error?: strin
 
   if (!scenarioId) return { error: '缺少 scenarioId' };
   if (!sessionId) return { error: '缺少 sessionId' };
-  if (!Array.isArray(payload.messages) || payload.messages.length === 0) {
-    return { error: 'messages 不能为空' };
+  if (!hasValidAiTrainingMessages(payload.messages)) {
+    return { error: 'messages 必须包含有效的 ai 或 trainee 消息' };
   }
 
   return {
@@ -45,8 +45,8 @@ function validatePayload(payload: unknown): { data?: ValidPayload; error?: strin
 }
 
 function errorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : 'AI 情景训练报告生成失败';
-  return NextResponse.json({ error: `AI 情景训练报告生成失败：${message}` }, { status: 500 });
+  console.error('AI training report generation failed', error);
+  return NextResponse.json({ error: '训练报告生成失败，请稍后重试' }, { status: 500 });
 }
 
 export async function POST(request: Request) {
@@ -56,11 +56,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const scenario = readAppState().aiTrainingScenarios.find(
+    const state = readAppState();
+    const scenario = state.aiTrainingScenarios.find(
       (item) => item.id === validation.data?.scenarioId
     );
     if (!scenario) {
       return NextResponse.json({ error: '未找到 AI 情景训练场景' }, { status: 400 });
+    }
+
+    const session = state.aiTrainingSessions.find((item) => item.id === validation.data?.sessionId);
+    if (!session) {
+      return NextResponse.json({ error: '未找到 AI 情景训练会话' }, { status: 400 });
+    }
+    if (session.scenarioId !== validation.data.scenarioId) {
+      return NextResponse.json({ error: 'AI 情景训练会话与场景不匹配' }, { status: 400 });
+    }
+    if (!hasValidAiTrainingMessages(session.messages)) {
+      return NextResponse.json({ error: 'AI 情景训练会话消息无效' }, { status: 400 });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -69,11 +81,19 @@ export async function POST(request: Request) {
     }
 
     const ai = new GoogleGenAI({ apiKey });
+    const prompt = buildReportPrompt(scenario, session.messages);
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: buildReportPrompt(scenario, validation.data.messages),
+      contents: prompt.contents,
+      config: {
+        systemInstruction: prompt.systemInstruction,
+        responseMimeType: 'application/json',
+      },
     });
     const text = response.text?.trim() ?? '';
+    if (!text) {
+      throw new Error('AI_REPORT_EMPTY_RESPONSE');
+    }
 
     return NextResponse.json({ report: parseReportJson(text) });
   } catch (error) {
