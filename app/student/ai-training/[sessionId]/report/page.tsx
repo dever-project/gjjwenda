@@ -51,6 +51,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
   const scenario = aiTrainingScenarios.find((item) => item.id === session?.scenarioId);
   const isOwner = Boolean(currentUser && session?.userId === currentUser.id);
   const canAccess = Boolean(currentUser?.role === 'admin' || isOwner);
+  const backToListPath = currentUser?.role === 'admin' ? '/admin/ai-training/records' : '/student/ai-training';
   const report = session?.report;
   const dimensionScores = report?.dimensionScores ?? [];
 
@@ -61,8 +62,11 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
   if (!session || !scenario) {
     return (
       <div className="flex h-full flex-1 items-center justify-center bg-slate-50 p-8">
-        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-          未找到训练报告
+        <div className="space-y-4 rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+          <div className="text-sm text-slate-500">未找到训练报告</div>
+          <Button variant="outline" onClick={() => router.push(backToListPath)}>
+            返回训练列表
+          </Button>
         </div>
       </div>
     );
@@ -73,7 +77,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
       <div className="flex h-full flex-1 items-center justify-center bg-slate-50 p-8">
         <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-8 text-center">
           <div className="font-semibold text-slate-800">无权访问该训练报告</div>
-          <Button variant="outline" onClick={() => router.push('/student/ai-training')}>
+          <Button variant="outline" onClick={() => router.push(backToListPath)}>
             返回训练列表
           </Button>
         </div>
@@ -86,7 +90,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
       <div className="flex h-full flex-1 flex-col overflow-hidden bg-slate-50">
         <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push('/student/ai-training')}>
+            <Button variant="ghost" size="icon" onClick={() => router.push(backToListPath)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
@@ -108,7 +112,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
               </p>
             </div>
             <div className="flex justify-center gap-2">
-              <Button variant="outline" onClick={() => router.push('/student/ai-training')}>
+              <Button variant="outline" onClick={() => router.push(backToListPath)}>
                 返回训练列表
               </Button>
               <Button onClick={() => router.push(`/student/ai-training/${session.id}`)}>
@@ -125,7 +129,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-slate-50">
       <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/student/ai-training')}>
+          <Button variant="ghost" size="icon" onClick={() => router.push(backToListPath)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -140,7 +144,7 @@ export default function AiTrainingReportPage({ params }: { params: Promise<{ ses
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push('/student/ai-training')}>
+          <Button variant="outline" onClick={() => router.push(backToListPath)}>
             返回训练列表
           </Button>
           <Button onClick={() => router.push(`/student/ai-training/${session.id}`)}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,42 +36,42 @@ function formatDate(timestamp?: number) {
 }
 
 export default function AiTrainingRecordsPage() {
-  const { aiTrainingSessions, aiTrainingScenarios, users } = useStore();
+  const { aiTrainingSessions, aiTrainingScenarios, currentUser, users } = useStore();
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
 
-  const records = useMemo(() => {
-    return [...aiTrainingSessions]
-      .sort((a, b) => {
-        if (a.status !== b.status) {
-          return a.status === 'completed' ? -1 : 1;
-        }
+  if (currentUser?.role !== 'admin') {
+    return null;
+  }
 
-        return (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt);
+  const records = [...aiTrainingSessions]
+    .sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === 'completed' ? -1 : 1;
+      }
+
+      return (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt);
+    })
+    .map((session) => ({
+      session,
+      scenario: aiTrainingScenarios.find((item) => item.id === session.scenarioId),
+      employee: users.find((item) => item.id === session.userId),
+    }));
+
+  const filteredRecords = normalizedSearchTerm
+    ? records.filter(({ employee, scenario, session }) => {
+        const searchText = [
+          employee?.name,
+          employee?.username,
+          session.userId,
+          scenario?.name,
+          session.scenarioId,
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        return searchText.includes(normalizedSearchTerm);
       })
-      .map((session) => ({
-        session,
-        scenario: aiTrainingScenarios.find((item) => item.id === session.scenarioId),
-        employee: users.find((item) => item.id === session.userId),
-      }));
-  }, [aiTrainingScenarios, aiTrainingSessions, users]);
-
-  const filteredRecords = useMemo(() => {
-    if (!normalizedSearchTerm) {
-      return records;
-    }
-
-    return records.filter(({ employee, scenario }) => {
-      const searchText = [
-        employee?.name,
-        employee?.username,
-        scenario?.name,
-      ].filter(Boolean).join(' ').toLowerCase();
-
-      return searchText.includes(normalizedSearchTerm);
-    });
-  }, [normalizedSearchTerm, records]);
+    : records;
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
