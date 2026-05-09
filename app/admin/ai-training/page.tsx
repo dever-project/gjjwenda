@@ -15,7 +15,7 @@ import {
   getRubricTotal,
   isValidRubricTotal,
 } from '@/lib/ai-training/defaults';
-import { readAiTrainingDocument } from '@/lib/ai-training/documents';
+import { readAiTrainingDocument, truncateScenarioDocuments } from '@/lib/ai-training/documents';
 import type {
   AiTrainingDifficulty,
   AiTrainingRedlineSeverity,
@@ -80,6 +80,13 @@ function validateScenario(scenario: AiTrainingScenario, publish: boolean) {
   if (!scenario.openingMessage.trim()) return '请填写 AI 开场白';
   if (publish && !isValidRubricTotal(scenario.scoringRubric)) return '评分维度总分必须等于 100';
   return '';
+}
+
+function withTruncatedDocuments(scenario: AiTrainingScenario): AiTrainingScenario {
+  return {
+    ...scenario,
+    documents: truncateScenarioDocuments(scenario.documents),
+  };
 }
 
 function formatDate(timestamp: number) {
@@ -155,9 +162,10 @@ export default function AiTrainingAdminPage() {
 
     setIsSaving(true);
     try {
+      const scenarioToSave = withTruncatedDocuments(editingScenario);
       await upsertAiTrainingScenario({
-        ...editingScenario,
-        status: publish ? 'published' : editingScenario.status || 'draft',
+        ...scenarioToSave,
+        status: publish ? 'published' : scenarioToSave.status || 'draft',
         updatedAt: getCurrentTimestamp(),
       });
       toast.success(publish ? '情景训练已发布' : '情景训练已保存');
@@ -177,7 +185,11 @@ export default function AiTrainingAdminPage() {
     }
 
     try {
-      await upsertAiTrainingScenario({ ...scenario, status, updatedAt: getCurrentTimestamp() });
+      await upsertAiTrainingScenario(withTruncatedDocuments({
+        ...scenario,
+        status,
+        updatedAt: getCurrentTimestamp(),
+      }));
       toast.success(status === 'published' ? '情景训练已发布' : '情景训练已归档');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '状态更新失败');
@@ -216,7 +228,7 @@ export default function AiTrainingAdminPage() {
 
       if (documents.length > 0) {
         setEditingScenario((scenario) => scenario
-          ? { ...scenario, documents: [...scenario.documents, ...documents] }
+          ? { ...scenario, documents: truncateScenarioDocuments([...scenario.documents, ...documents]) }
           : scenario
         );
         toast.success(`已上传 ${documents.length} 份资料`);

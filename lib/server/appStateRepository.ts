@@ -19,6 +19,7 @@ import type {
   TrainingProgress,
   User,
 } from '@/lib/appTypes';
+import { truncateScenarioDocuments } from '@/lib/ai-training/documents';
 import { DEFAULT_KNOWLEDGE_CATEGORIES, DEFAULT_USERS } from '@/lib/appTypes';
 import { getDatabase } from '@/lib/server/sqlite';
 
@@ -291,7 +292,7 @@ function normalizeAiTrainingDocuments(value: unknown, fallbackUploadedAt = Date.
     return [];
   }
 
-  return value.map((document, index) => {
+  const documents = value.map((document, index) => {
     const data = recordValue(document);
     const sourceUrl = optionalString(data.sourceUrl);
     const fileName =
@@ -308,6 +309,8 @@ function normalizeAiTrainingDocuments(value: unknown, fallbackUploadedAt = Date.
       uploadedAt: numberValue(data.uploadedAt, numberValue(data.createdAt, fallbackUploadedAt)),
     };
   });
+
+  return truncateScenarioDocuments(documents);
 }
 
 function normalizeAiTrainingRubric(value: unknown): AiTrainingRubricItem[] {

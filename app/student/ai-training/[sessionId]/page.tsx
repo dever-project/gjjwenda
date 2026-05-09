@@ -46,7 +46,9 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   } = useStore();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isRetryingAiReply, setIsRetryingAiReply] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
+  const [failedAiReplySessionId, setFailedAiReplySessionId] = useState<string | null>(null);
 
   const session = aiTrainingSessions.find((item) => item.id === resolvedParams.sessionId);
   const scenario = aiTrainingScenarios.find((item) => item.id === session?.scenarioId);
@@ -66,6 +68,33 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const persistSession = async (nextSession: AiTrainingSession) => {
     await upsertAiTrainingSession(nextSession);
   };
+
+  const requestAiReply = async (sessionId: string, messages: AiTrainingMessage[]) => {
+    if (!scenario) {
+      throw new Error('未找到训练场景');
+    }
+
+    const response = await fetch('/api/ai-training/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scenarioId: scenario.id,
+        sessionId,
+        messages,
+      }),
+    });
+    const payload = await response.json().catch(() => ({})) as ChatPayload;
+    if (!response.ok) {
+      throw new Error(payload.error || 'AI 回复失败');
+    }
+    if (!isValidAiMessage(payload.message)) {
+      throw new Error('AI 回复格式无效');
+    }
+
+    return payload.message;
+  };
+
+  const canRetryAiReply = Boolean(canInteract && failedAiReplySessionId === session?.id);
 
   const handleSend = async () => {
     const latestSession = getLatestSession();
@@ -89,34 +118,52 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
     };
 
     setIsSending(true);
+    setFailedAiReplySessionId(null);
     setInput('');
+    let hasPersistedTraineeMessage = false;
     try {
       await persistSession(optimisticSession);
-      const response = await fetch('/api/ai-training/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenarioId: scenario.id,
-          sessionId: latestSession.id,
-          messages: optimisticSession.messages,
-        }),
-      });
-      const payload = await response.json().catch(() => ({})) as ChatPayload;
-      if (!response.ok) {
-        throw new Error(payload.error || 'AI 回复失败');
-      }
-      if (!isValidAiMessage(payload.message)) {
-        throw new Error('AI 回复格式无效');
-      }
-
+      hasPersistedTraineeMessage = true;
+      const aiMessage = await requestAiReply(latestSession.id, optimisticSession.messages);
       await persistSession({
         ...optimisticSession,
-        messages: [...optimisticSession.messages, payload.message],
+        messages: [...optimisticSession.messages, aiMessage],
       });
+      setFailedAiReplySessionId(null);
     } catch (error) {
+      if (hasPersistedTraineeMessage) {
+        setFailedAiReplySessionId(latestSession.id);
+      }
       toast.error(parseErrorMessage(error, 'AI 回复失败'));
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleRetryAiReply = async () => {
+    const latestSession = getLatestSession();
+    if (!latestSession || !scenario || !canRetryAiReply) {
+      return;
+    }
+    const latestIsOwner = Boolean(currentUser && latestSession.userId === currentUser.id);
+    const lastMessage = latestSession.messages.at(-1);
+    if (!latestIsOwner || latestSession.status !== 'in_progress' || lastMessage?.role !== 'trainee') {
+      setFailedAiReplySessionId(null);
+      return;
+    }
+
+    setIsRetryingAiReply(true);
+    try {
+      const aiMessage = await requestAiReply(latestSession.id, latestSession.messages);
+      await persistSession({
+        ...latestSession,
+        messages: [...latestSession.messages, aiMessage],
+      });
+      setFailedAiReplySessionId(null);
+    } catch (error) {
+      toast.error(parseErrorMessage(error, 'AI 回复失败'));
+    } finally {
+      setIsRetryingAiReply(false);
     }
   };
 
@@ -282,14 +329,26 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
                 }
               }}
             />
-            <Button
-              className="h-20 w-28 flex-shrink-0 bg-orange-600 hover:bg-orange-700"
-              disabled={!canInteract || !trimmedInput || isSending || isEnding}
-              onClick={() => void handleSend()}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              {isSending ? '发送中' : '发送'}
-            </Button>
+            <div className="flex w-32 flex-shrink-0 flex-col gap-2">
+              <Button
+                className="h-full min-h-11 bg-orange-600 hover:bg-orange-700"
+                disabled={!canInteract || !trimmedInput || isSending || isRetryingAiReply || isEnding}
+                onClick={() => void handleSend()}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                {isSending ? '发送中' : '发送'}
+              </Button>
+              {canRetryAiReply && (
+                <Button
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={isSending || isRetryingAiReply || isEnding}
+                  onClick={() => void handleRetryAiReply()}
+                >
+                  {isRetryingAiReply ? '重试中...' : '重试 AI 回复'}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </main>
