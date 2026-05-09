@@ -65,6 +65,26 @@ function requireFiniteNumber(value: unknown) {
   return value;
 }
 
+function requireTotalScore(value: unknown) {
+  const score = requireFiniteNumber(value);
+  if (score < 0 || score > 100) {
+    throw new Error('AI_REPORT_INVALID');
+  }
+
+  return score;
+}
+
+function requireDimensionScore(scoreValue: unknown, maxScoreValue: unknown) {
+  const score = requireFiniteNumber(scoreValue);
+  const maxScore = requireFiniteNumber(maxScoreValue);
+
+  if (maxScore <= 0 || score < 0 || score > maxScore) {
+    throw new Error('AI_REPORT_INVALID');
+  }
+
+  return { score, maxScore };
+}
+
 function transcript(messages: AiTrainingMessage[]) {
   return messages
     .map((message) => `${message.role === 'ai' ? 'AI角色' : '员工'}：${message.content}`)
@@ -96,12 +116,13 @@ function parseDimensionScores(value: unknown): AiTrainingDimensionScore[] {
 
   return value.map((item) => {
     const data = requireRecord(item);
+    const { score, maxScore } = requireDimensionScore(data.score, data.maxScore);
 
     return {
       rubricItemId: requireNonEmptyString(data.rubricItemId),
       name: requireNonEmptyString(data.name),
-      score: requireFiniteNumber(data.score),
-      maxScore: requireFiniteNumber(data.maxScore),
+      score,
+      maxScore,
       reason: requireNonEmptyString(data.reason),
       evidence: requireNonEmptyString(data.evidence),
     };
@@ -202,10 +223,9 @@ export function buildReportPrompt(scenario: AiTrainingScenario, messages: AiTrai
 
 export function parseReportJson(text: string): AiTrainingReport {
   const parsed = requireRecord(JSON.parse(stripJsonFence(text)));
-  const totalScore = Math.max(0, Math.min(100, requireFiniteNumber(parsed.totalScore)));
 
   return {
-    totalScore,
+    totalScore: requireTotalScore(parsed.totalScore),
     dimensionScores: parseDimensionScores(parsed.dimensionScores),
     redlineHits: parseRedlineHits(parsed.redlineHits),
     strengths: requireStringArray(parsed.strengths),

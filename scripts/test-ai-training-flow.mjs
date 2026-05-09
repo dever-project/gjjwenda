@@ -34,7 +34,7 @@ async function expectInvalidPayloadError(path) {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ scenarioId: '', sessionId: '', messages: [] }),
+    body: JSON.stringify({ scenarioId: '', sessionId: '' }),
   }));
 
   if (result.ok || !result.payload?.error) {
@@ -60,6 +60,7 @@ const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const scenarioId = `smoke-ai-training-flow-scenario-${runId}`;
 const mismatchScenarioId = `smoke-ai-training-flow-mismatch-scenario-${runId}`;
 const mismatchSessionId = `smoke-ai-training-flow-session-${runId}`;
+const emptySessionId = `smoke-ai-training-flow-empty-session-${runId}`;
 const now = Date.now();
 const validMessages = [
   {
@@ -120,19 +121,32 @@ async function main() {
           messages: validMessages,
           startedAt: now,
         },
+        {
+          id: emptySessionId,
+          scenarioId,
+          userId: 'u1',
+          status: 'in_progress',
+          messages: [],
+          startedAt: now,
+        },
       ],
     });
 
     for (const path of ['/api/ai-training/chat', '/api/ai-training/report']) {
       await expectContractError(
         path,
-        { scenarioId, sessionId: `missing-session-${runId}`, messages: validMessages },
+        { scenarioId, sessionId: `missing-session-${runId}` },
         `${path} should reject missing session before checking GEMINI_API_KEY`
       );
       await expectContractError(
         path,
-        { scenarioId, sessionId: mismatchSessionId, messages: validMessages },
+        { scenarioId, sessionId: mismatchSessionId },
         `${path} should reject mismatched session before checking GEMINI_API_KEY`
+      );
+      await expectContractError(
+        path,
+        { scenarioId, sessionId: emptySessionId },
+        `${path} should reject empty server session messages before checking GEMINI_API_KEY`
       );
     }
 
@@ -145,7 +159,7 @@ async function main() {
         (scenario) => scenario.id !== scenarioId && scenario.id !== mismatchScenarioId
       ),
       aiTrainingSessions: (latestState.aiTrainingSessions ?? []).filter(
-        (session) => session.id !== mismatchSessionId
+        (session) => session.id !== mismatchSessionId && session.id !== emptySessionId
       ),
     });
   }

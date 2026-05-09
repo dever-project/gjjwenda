@@ -1,7 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { buildChatPrompt, hasValidAiTrainingMessages } from '@/lib/ai-training/prompts';
-import type { AiTrainingMessage } from '@/lib/appTypes';
 import { readAppState } from '@/lib/server/appStateRepository';
 
 export const runtime = 'nodejs';
@@ -10,7 +9,6 @@ export const dynamic = 'force-dynamic';
 interface ValidPayload {
   scenarioId: string;
   sessionId: string;
-  messages: AiTrainingMessage[];
 }
 
 function readText(value: unknown) {
@@ -31,15 +29,11 @@ function validatePayload(payload: unknown): { data?: ValidPayload; error?: strin
 
   if (!scenarioId) return { error: '缺少 scenarioId' };
   if (!sessionId) return { error: '缺少 sessionId' };
-  if (!hasValidAiTrainingMessages(payload.messages)) {
-    return { error: 'messages 必须包含有效的 ai 或 trainee 消息' };
-  }
 
   return {
     data: {
       scenarioId,
       sessionId,
-      messages: payload.messages as AiTrainingMessage[],
     },
   };
 }
@@ -64,6 +58,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '未找到 AI 情景训练场景' }, { status: 400 });
     }
 
+    // Current AppData persistence is the source of truth for training sessions;
+    // server-owned session mutation would require replacing the existing client PUT flow.
     const session = state.aiTrainingSessions.find((item) => item.id === validation.data?.sessionId);
     if (!session) {
       return NextResponse.json({ error: '未找到 AI 情景训练会话' }, { status: 400 });
