@@ -348,6 +348,11 @@
   - `APP_BASE_URL=http://localhost:3017 npm run test:ai-training-flow` 通过。
   - `npx tsc --noEmit --pretty false` 通过。
   - `npm run build` 通过。
+- 最终 review 修复后已复验：
+  - `APP_BASE_URL=http://localhost:3018 npm run test:ai-training-state` 通过。
+  - `APP_BASE_URL=http://localhost:3018 npm run test:ai-training-flow` 通过。
+  - `npx tsc --noEmit --pretty false` 通过。
+  - `npm run build` 通过。
 - 已知限制：
   - `npm run lint` 仍失败，失败点来自实现前已存在的 React lint 基线问题，包括旧页面 effect 内同步 setState、考试页 render 阶段 `Date.now()`、`FeishuRuntimeScripts` 的 script 策略 warning。
   - AI 情景训练分数仅作训练反馈，不影响考试成绩、通过状态或重考状态。
