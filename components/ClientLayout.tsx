@@ -3,7 +3,7 @@
 import { useStore } from '@/store/useStore';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type MouseEvent } from 'react';
-import { LogOut, CheckSquare, Settings, FileSpreadsheet, Users, LayoutDashboard, Database, ListTodo, KeyRound, Sparkles, Menu } from 'lucide-react';
+import { LogOut, CheckSquare, Settings, FileSpreadsheet, Users, LayoutDashboard, Database, ListTodo, KeyRound, Sparkles, Menu, MessagesSquare, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -20,6 +20,8 @@ const ROUTE_WARMUP_PATHS = [
   '/admin/records/__warmup__',
   '/admin/feishu',
   '/admin/ai-apps',
+  '/admin/ai-training',
+  '/admin/ai-training/records',
   '/admin/users',
   '/student',
   '/student/records',
@@ -137,6 +139,8 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       title: 'AI',
       items: [
         { name: '飞书应用', href: '/admin/ai-apps', icon: Sparkles },
+        { name: '情景训练', href: '/admin/ai-training', icon: MessagesSquare },
+        { name: '训练记录', href: '/admin/ai-training/records', icon: ClipboardList },
       ]
     },
     {
