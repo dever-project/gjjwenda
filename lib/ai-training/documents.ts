@@ -22,12 +22,12 @@ export function truncateScenarioDocuments(documents: AiTrainingDocument[]) {
 
   return documents.map((document) => {
     const remainingLength = Math.max(0, MAX_AI_TRAINING_TEXT_LENGTH - usedLength);
-    const content = document.content.slice(0, remainingLength);
-    usedLength += content.length;
+    const text = document.text.slice(0, remainingLength);
+    usedLength += text.length;
 
     return {
       ...document,
-      content,
+      text,
     };
   });
 }
@@ -92,7 +92,9 @@ export async function readAiTrainingDocument(file: File): Promise<AiTrainingDocu
 
   return {
     id: createId('aitdoc'),
-    title: file.name,
-    content: trimmedContent,
+    fileName: file.name,
+    fileType,
+    text: trimmedContent,
+    uploadedAt: Date.now(),
   };
 }

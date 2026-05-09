@@ -64,16 +64,17 @@ try {
 
   const scenario = {
     id: scenarioId,
-    title: 'Smoke Test AI Training Scenario',
+    name: 'Smoke Test AI Training Scenario',
+    stage: 'Smoke Test Stage',
     description: 'Verifies AI training scenario persistence.',
     difficulty: '基础',
-    status: 'draft',
-    rolePrompt: 'Act as a customer in a training conversation.',
-    traineeGoal: 'Collect customer context and avoid redline phrases.',
+    aiRole: 'Act as a customer in a training conversation.',
+    traineeTask: 'Collect customer context and avoid redline phrases.',
+    openingMessage: 'Hello, I need help understanding my case options.',
     scoringRubric: [
       {
         id: 'smoke-rubric',
-        title: 'Context collection',
+        name: 'Context collection',
         description: 'Asks relevant context questions.',
         maxScore: 10,
       },
@@ -89,10 +90,13 @@ try {
     documents: [
       {
         id: 'smoke-document',
-        title: 'Smoke Test Reference',
-        content: 'Use this document to verify JSON persistence.',
+        fileName: 'Smoke Test Reference.md',
+        fileType: 'md',
+        text: 'Use this document to verify JSON persistence.',
+        uploadedAt: now,
       },
     ],
+    status: 'draft',
     createdAt: now,
     updatedAt: now,
   };
@@ -112,15 +116,20 @@ try {
     ],
     report: {
       totalScore: 8,
-      maxScore: 10,
       dimensionScores: [
         {
           rubricItemId: 'smoke-rubric',
+          name: 'Context collection',
           score: 8,
-          comment: 'Asked useful opening questions.',
+          maxScore: 10,
+          reason: 'Asked useful opening questions.',
+          evidence: '您好，我想先了解一下您的基本情况。',
         },
       ],
       redlineHits: [],
+      strengths: ['Asked a clear opening question.'],
+      issues: ['Need more detail in follow-up questions.'],
+      suggestedPhrases: ['我先确认几个关键信息，避免误判。'],
       summary: 'Smoke test report.',
       generatedAt: now,
     },
@@ -135,15 +144,34 @@ try {
   });
 
   const persistedState = await readAppState();
+  const persistedScenario = persistedState.aiTrainingScenarios?.find((item) => item.id === scenarioId);
+  const persistedSession = persistedState.aiTrainingSessions?.find((item) => item.id === sessionId);
   assert(
-    Array.isArray(persistedState.aiTrainingScenarios) &&
-      persistedState.aiTrainingScenarios.some((item) => item.id === scenarioId),
+    Array.isArray(persistedState.aiTrainingScenarios) && persistedScenario,
     'aiTrainingScenarios did not persist'
   );
   assert(
-    Array.isArray(persistedState.aiTrainingSessions) &&
-      persistedState.aiTrainingSessions.some((item) => item.id === sessionId),
+    persistedScenario.name === scenario.name &&
+      persistedScenario.stage === scenario.stage &&
+      persistedScenario.aiRole === scenario.aiRole &&
+      persistedScenario.traineeTask === scenario.traineeTask &&
+      persistedScenario.openingMessage === scenario.openingMessage &&
+      persistedScenario.scoringRubric[0]?.name === scenario.scoringRubric[0].name &&
+      persistedScenario.documents[0]?.fileName === scenario.documents[0].fileName &&
+      persistedScenario.documents[0]?.fileType === scenario.documents[0].fileType &&
+      persistedScenario.documents[0]?.text === scenario.documents[0].text,
+    'aiTrainingScenarios did not keep approved field shape'
+  );
+  assert(
+    Array.isArray(persistedState.aiTrainingSessions) && persistedSession,
     'aiTrainingSessions did not persist'
+  );
+  assert(
+    persistedSession.report?.dimensionScores[0]?.name === session.report.dimensionScores[0].name &&
+      persistedSession.report?.dimensionScores[0]?.reason === session.report.dimensionScores[0].reason &&
+      persistedSession.report?.strengths?.[0] === session.report.strengths[0] &&
+      persistedSession.report?.suggestedPhrases?.[0] === session.report.suggestedPhrases[0],
+    'aiTrainingSessions did not keep approved report shape'
   );
 
   console.log('AI training state persistence smoke test passed');

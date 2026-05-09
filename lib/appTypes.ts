@@ -266,14 +266,15 @@ export interface SyncRun {
 
 export interface AiTrainingDocument {
   id: string;
-  title: string;
-  content: string;
-  sourceUrl?: string;
+  fileName: string;
+  fileType: 'docx' | 'txt' | 'md';
+  text: string;
+  uploadedAt: number;
 }
 
 export interface AiTrainingRubricItem {
   id: string;
-  title: string;
+  name: string;
   description: string;
   maxScore: number;
 }
@@ -287,15 +288,17 @@ export interface AiTrainingRedlineRule {
 
 export interface AiTrainingScenario {
   id: string;
-  title: string;
+  name: string;
+  stage?: string;
   description: string;
   difficulty: AiTrainingDifficulty;
-  status: AiTrainingScenarioStatus;
-  rolePrompt: string;
-  traineeGoal: string;
+  aiRole: string;
+  traineeTask: string;
+  openingMessage: string;
   scoringRubric: AiTrainingRubricItem[];
   redlineRules: AiTrainingRedlineRule[];
   documents: AiTrainingDocument[];
+  status: AiTrainingScenarioStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -309,23 +312,29 @@ export interface AiTrainingMessage {
 
 export interface AiTrainingDimensionScore {
   rubricItemId: string;
+  name: string;
   score: number;
-  comment?: string;
+  maxScore: number;
+  reason: string;
+  evidence: string;
 }
 
 export interface AiTrainingRedlineHit {
-  ruleId: string;
+  ruleId?: string;
+  title: string;
   severity: AiTrainingRedlineSeverity;
-  messageId?: string;
-  excerpt?: string;
-  comment?: string;
+  quote: string;
+  reason: string;
+  suggestion: string;
 }
 
 export interface AiTrainingReport {
   totalScore: number;
-  maxScore: number;
   dimensionScores: AiTrainingDimensionScore[];
   redlineHits: AiTrainingRedlineHit[];
+  strengths: string[];
+  issues: string[];
+  suggestedPhrases: string[];
   summary: string;
   generatedAt: number;
 }

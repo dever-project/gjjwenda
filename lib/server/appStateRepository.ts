@@ -1,4 +1,8 @@
 import type {
+  AiTrainingDocument,
+  AiTrainingRedlineHit,
+  AiTrainingReport,
+  AiTrainingRubricItem,
   AiTrainingScenario,
   AiTrainingSession,
   AppData,
@@ -149,10 +153,15 @@ export function ensureAppStateSchema() {
 
     CREATE TABLE IF NOT EXISTS ai_training_scenarios (
       id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      stage TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       difficulty TEXT NOT NULL,
       status TEXT NOT NULL,
+      ai_role TEXT NOT NULL DEFAULT '',
+      trainee_task TEXT NOT NULL DEFAULT '',
+      opening_message TEXT NOT NULL DEFAULT '',
       role_prompt TEXT NOT NULL,
       trainee_goal TEXT NOT NULL,
       scoring_rubric TEXT NOT NULL,
@@ -196,6 +205,11 @@ export function ensureAppStateSchema() {
   addColumnIfMissing('exam_attempts', 'current_question_index', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('exam_attempts', 'reviewer_id', 'TEXT');
   addColumnIfMissing('exam_attempts', 'reviewed_at', 'INTEGER');
+  addColumnIfMissing('ai_training_scenarios', 'name', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('ai_training_scenarios', 'stage', 'TEXT');
+  addColumnIfMissing('ai_training_scenarios', 'ai_role', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('ai_training_scenarios', 'trainee_task', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('ai_training_scenarios', 'opening_message', "TEXT NOT NULL DEFAULT ''");
 }
 
 function stringifyJson(value: unknown) {
@@ -244,6 +258,118 @@ function booleanValue(value: unknown, fallback = false) {
   }
 
   return Boolean(value);
+}
+
+function recordValue(value: unknown) {
+  return value && typeof value === 'object' ? value as Row : {};
+}
+
+function stringValue(value: unknown, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function aiTrainingFileType(value: unknown, fileName: string): AiTrainingDocument['fileType'] {
+  if (value === 'docx' || value === 'txt' || value === 'md') {
+    return value;
+  }
+
+  const lowerFileName = fileName.toLowerCase();
+  if (lowerFileName.endsWith('.docx')) return 'docx';
+  if (lowerFileName.endsWith('.txt')) return 'txt';
+  return 'md';
+}
+
+function normalizeAiTrainingDocuments(value: unknown): AiTrainingDocument[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((document, index) => {
+    const data = recordValue(document);
+    const fileName = optionalString(data.fileName) ?? optionalString(data.title) ?? `资料 ${index + 1}`;
+
+    return {
+      id: stringValue(data.id, `aitdoc_legacy_${index}`),
+      fileName,
+      fileType: aiTrainingFileType(data.fileType, fileName),
+      text: stringValue(data.text, stringValue(data.content)),
+      uploadedAt: numberValue(data.uploadedAt, numberValue(data.createdAt, Date.now())),
+    };
+  });
+}
+
+function normalizeAiTrainingRubric(value: unknown): AiTrainingRubricItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item, index) => {
+    const data = recordValue(item);
+
+    return {
+      id: stringValue(data.id, `rubric_legacy_${index}`),
+      name: optionalString(data.name) ?? stringValue(data.title),
+      description: stringValue(data.description),
+      maxScore: numberValue(data.maxScore),
+    };
+  });
+}
+
+function normalizeAiTrainingRedlineHits(value: unknown): AiTrainingRedlineHit[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((hit, index) => {
+    const data = recordValue(hit);
+    const severity = data.severity === 'low' || data.severity === 'medium' || data.severity === 'high'
+      ? data.severity
+      : 'medium';
+
+    return {
+      ruleId: optionalString(data.ruleId),
+      title: stringValue(data.title, `红线命中 ${index + 1}`),
+      severity,
+      quote: stringValue(data.quote, stringValue(data.excerpt)),
+      reason: stringValue(data.reason, stringValue(data.comment)),
+      suggestion: stringValue(data.suggestion),
+    };
+  });
+}
+
+function normalizeAiTrainingReport(value: unknown): AiTrainingReport | undefined {
+  const data = recordValue(value);
+  if (Object.keys(data).length === 0) {
+    return undefined;
+  }
+
+  const dimensionScores = Array.isArray(data.dimensionScores)
+    ? data.dimensionScores.map((score, index) => {
+        const item = recordValue(score);
+
+        return {
+          rubricItemId: stringValue(item.rubricItemId, `rubric_legacy_${index}`),
+          name: stringValue(item.name),
+          score: numberValue(item.score),
+          maxScore: numberValue(item.maxScore),
+          reason: stringValue(item.reason, stringValue(item.comment)),
+          evidence: stringValue(item.evidence),
+        };
+      })
+    : [];
+
+  return {
+    totalScore: numberValue(data.totalScore),
+    dimensionScores,
+    redlineHits: normalizeAiTrainingRedlineHits(data.redlineHits),
+    strengths: Array.isArray(data.strengths) ? data.strengths.map((item) => String(item)) : [],
+    issues: Array.isArray(data.issues) ? data.issues.map((item) => String(item)) : [],
+    suggestedPhrases: Array.isArray(data.suggestedPhrases)
+      ? data.suggestedPhrases.map((item) => String(item))
+      : [],
+    summary: stringValue(data.summary),
+    generatedAt: numberValue(data.generatedAt, Date.now()),
+  };
 }
 
 function seedDefaultUsers() {
@@ -530,21 +656,23 @@ function selectAiTrainingScenarios(): AiTrainingScenario[] {
 
   return rows.map((row) => ({
     id: String(row.id),
-    title: String(row.title),
+    name: optionalString(row.name) ?? stringValue(row.title),
+    stage: optionalString(row.stage),
     description: String(row.description),
     difficulty:
       row.difficulty === '中等' ? '中等' : row.difficulty === '高' ? '高' : '基础',
+    aiRole: optionalString(row.ai_role) ?? stringValue(row.role_prompt),
+    traineeTask: optionalString(row.trainee_task) ?? stringValue(row.trainee_goal),
+    openingMessage: optionalString(row.opening_message) ?? String(row.description ?? ''),
+    scoringRubric: normalizeAiTrainingRubric(parseJson(row.scoring_rubric, [])),
+    redlineRules: parseJson(row.redline_rules, []),
+    documents: normalizeAiTrainingDocuments(parseJson(row.documents, [])),
     status:
       row.status === 'published'
         ? 'published'
         : row.status === 'archived'
           ? 'archived'
           : 'draft',
-    rolePrompt: String(row.role_prompt),
-    traineeGoal: String(row.trainee_goal),
-    scoringRubric: parseJson(row.scoring_rubric, []),
-    redlineRules: parseJson(row.redline_rules, []),
-    documents: parseJson(row.documents, []),
     createdAt: numberValue(row.created_at, Date.now()),
     updatedAt: numberValue(row.updated_at, Date.now()),
   }));
@@ -563,7 +691,7 @@ function selectAiTrainingSessions(): AiTrainingSession[] {
     userId: String(row.user_id),
     status: row.status === 'completed' ? 'completed' : 'in_progress',
     messages: parseJson(row.messages, []),
-    report: parseJson<AiTrainingSession['report'] | null>(row.report, null) ?? undefined,
+    report: normalizeAiTrainingReport(parseJson(row.report, null)),
     startedAt: numberValue(row.started_at, Date.now()),
     completedAt: optionalNumber(row.completed_at),
   }));
@@ -717,10 +845,11 @@ export function replaceAppState(data: AppData): AppData {
   `);
   const insertAiTrainingScenario = db.prepare(`
     INSERT INTO ai_training_scenarios (
-      id, title, description, difficulty, status, role_prompt, trainee_goal,
-      scoring_rubric, redline_rules, documents, created_at, updated_at
+      id, name, stage, title, description, difficulty, status, ai_role, trainee_task,
+      opening_message, role_prompt, trainee_goal, scoring_rubric, redline_rules,
+      documents, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAiTrainingSession = db.prepare(`
     INSERT INTO ai_training_sessions (
@@ -903,12 +1032,17 @@ export function replaceAppState(data: AppData): AppData {
     data.aiTrainingScenarios.forEach((scenario) => {
       insertAiTrainingScenario.run(
         scenario.id,
-        scenario.title,
+        scenario.name,
+        scenario.stage ?? null,
+        scenario.name,
         scenario.description,
         scenario.difficulty,
         scenario.status,
-        scenario.rolePrompt,
-        scenario.traineeGoal,
+        scenario.aiRole,
+        scenario.traineeTask,
+        scenario.openingMessage,
+        scenario.aiRole,
+        scenario.traineeTask,
         stringifyJson(scenario.scoringRubric),
         stringifyJson(scenario.redlineRules),
         stringifyJson(scenario.documents),

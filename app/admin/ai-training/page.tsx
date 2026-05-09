@@ -48,15 +48,17 @@ function createEmptyScenario(): AiTrainingScenario {
   const now = getCurrentTimestamp();
   return {
     id: createId('scenario'),
-    title: '',
+    name: '',
+    stage: '',
     description: '',
     difficulty: '中等',
-    status: 'draft',
-    rolePrompt: '',
-    traineeGoal: '',
+    aiRole: '',
+    traineeTask: '',
+    openingMessage: '',
     scoringRubric: DEFAULT_AI_TRAINING_RUBRIC.map((item) => ({ ...item })),
     redlineRules: DEFAULT_AI_TRAINING_REDLINES.map((item) => ({ ...item })),
     documents: [],
+    status: 'draft',
     createdAt: now,
     updatedAt: now,
   };
@@ -72,10 +74,10 @@ function cloneScenario(scenario: AiTrainingScenario): AiTrainingScenario {
 }
 
 function validateScenario(scenario: AiTrainingScenario, publish: boolean) {
-  if (!scenario.title.trim()) return '请填写场景名称';
-  if (!scenario.rolePrompt.trim()) return '请填写 AI 扮演角色';
-  if (!scenario.traineeGoal.trim()) return '请填写员工任务';
-  if (!scenario.description.trim()) return '请填写 AI 开场白';
+  if (!scenario.name.trim()) return '请填写场景名称';
+  if (!scenario.aiRole.trim()) return '请填写 AI 扮演角色';
+  if (!scenario.traineeTask.trim()) return '请填写员工任务';
+  if (!scenario.openingMessage.trim()) return '请填写 AI 开场白';
   if (publish && !isValidRubricTotal(scenario.scoringRubric)) return '评分维度总分必须等于 100';
   return '';
 }
@@ -183,7 +185,7 @@ export default function AiTrainingAdminPage() {
   };
 
   const handleDelete = async (scenario: AiTrainingScenario) => {
-    if (!window.confirm(`确认删除情景训练“${scenario.title}”？相关训练记录也会被删除。`)) {
+    if (!window.confirm(`确认删除情景训练“${scenario.name}”？相关训练记录也会被删除。`)) {
       return;
     }
 
@@ -276,14 +278,14 @@ export default function AiTrainingAdminPage() {
                 sortedScenarios.map((scenario) => (
                   <TableRow key={scenario.id}>
                     <TableCell className="max-w-[260px]">
-                      <div className="truncate font-medium text-slate-900" title={scenario.title}>
-                        {scenario.title}
+                      <div className="truncate font-medium text-slate-900" title={scenario.name}>
+                        {scenario.name}
                       </div>
-                      <div className="mt-1 truncate text-[11px] text-slate-500" title={scenario.traineeGoal}>
-                        {scenario.traineeGoal || '未填写员工任务'}
+                      <div className="mt-1 truncate text-[11px] text-slate-500" title={scenario.traineeTask}>
+                        {scenario.traineeTask || '未填写员工任务'}
                       </div>
                     </TableCell>
-                    <TableCell className="text-slate-400">-</TableCell>
+                    <TableCell>{scenario.stage || '-'}</TableCell>
                     <TableCell>{scenario.difficulty}</TableCell>
                     <TableCell>
                       <Badge className={STATUS_META[scenario.status].className}>
@@ -331,7 +333,7 @@ export default function AiTrainingAdminPage() {
       <Dialog open={!!editingScenario} onOpenChange={(open) => !open && setEditingScenario(null)}>
         <DialogContent className="max-h-[92vh] overflow-hidden sm:max-w-[960px]">
           <DialogHeader>
-            <DialogTitle>{editingScenario?.title ? '编辑情景训练' : '新建情景训练'}</DialogTitle>
+            <DialogTitle>{editingScenario?.name ? '编辑情景训练' : '新建情景训练'}</DialogTitle>
           </DialogHeader>
 
           {editingScenario && (
@@ -340,9 +342,17 @@ export default function AiTrainingAdminPage() {
                 <div className="space-y-2">
                   <Label>场景名称</Label>
                   <Input
-                    value={editingScenario.title}
-                    onChange={(event) => updateScenario({ title: event.target.value })}
+                    value={editingScenario.name}
+                    onChange={(event) => updateScenario({ name: event.target.value })}
                     placeholder="例如：法拍房咨询接待"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>适用阶段</Label>
+                  <Input
+                    value={editingScenario.stage ?? ''}
+                    onChange={(event) => updateScenario({ stage: event.target.value })}
+                    placeholder="例如：J 节点面谈"
                   />
                 </div>
                 <div className="space-y-2">
@@ -357,11 +367,20 @@ export default function AiTrainingAdminPage() {
                     ))}
                   </select>
                 </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>AI 开场白</Label>
+                <div className="space-y-2">
+                  <Label>场景说明</Label>
                   <Textarea
                     value={editingScenario.description}
                     onChange={(event) => updateScenario({ description: event.target.value })}
+                    placeholder="说明训练背景、业务上下文或适用对象"
+                    className="min-h-20"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>AI 开场白</Label>
+                  <Textarea
+                    value={editingScenario.openingMessage}
+                    onChange={(event) => updateScenario({ openingMessage: event.target.value })}
                     placeholder="AI 在训练开始时说出的第一句话"
                     className="min-h-20"
                   />
@@ -369,8 +388,8 @@ export default function AiTrainingAdminPage() {
                 <div className="space-y-2">
                   <Label>AI 扮演角色</Label>
                   <Textarea
-                    value={editingScenario.rolePrompt}
-                    onChange={(event) => updateScenario({ rolePrompt: event.target.value })}
+                    value={editingScenario.aiRole}
+                    onChange={(event) => updateScenario({ aiRole: event.target.value })}
                     placeholder="说明 AI 要扮演的客户、同事或业务对象"
                     className="min-h-24"
                   />
@@ -378,8 +397,8 @@ export default function AiTrainingAdminPage() {
                 <div className="space-y-2">
                   <Label>员工任务</Label>
                   <Textarea
-                    value={editingScenario.traineeGoal}
-                    onChange={(event) => updateScenario({ traineeGoal: event.target.value })}
+                    value={editingScenario.traineeTask}
+                    onChange={(event) => updateScenario({ traineeTask: event.target.value })}
                     placeholder="说明员工在对练中需要完成的目标"
                     className="min-h-24"
                   />
@@ -414,9 +433,11 @@ export default function AiTrainingAdminPage() {
                         <div className="min-w-0">
                           <p className="flex items-center gap-2 truncate text-xs font-medium text-slate-800">
                             <FileText className="h-4 w-4 flex-shrink-0 text-slate-400" />
-                            {document.title}
+                            {document.fileName}
                           </p>
-                          <p className="mt-1 text-[11px] text-slate-500">{document.content.length} 字</p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {document.fileType.toUpperCase()} · {document.text.length} 字
+                          </p>
                         </div>
                         <Button
                           size="sm"
@@ -443,8 +464,8 @@ export default function AiTrainingAdminPage() {
                   {editingScenario.scoringRubric.map((item) => (
                     <div key={item.id} className="grid gap-2 rounded-md bg-white p-3 md:grid-cols-[1fr_2fr_100px]">
                       <Input
-                        value={item.title}
-                        onChange={(event) => updateRubricItem(item.id, { title: event.target.value })}
+                        value={item.name}
+                        onChange={(event) => updateRubricItem(item.id, { name: event.target.value })}
                         placeholder="维度名称"
                       />
                       <Input

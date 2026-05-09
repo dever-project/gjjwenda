@@ -3,31 +3,31 @@ import type { AiTrainingRedlineRule, AiTrainingRubricItem } from '@/lib/appTypes
 export const DEFAULT_AI_TRAINING_RUBRIC: AiTrainingRubricItem[] = [
   {
     id: 'business_understanding',
-    title: '业务理解',
+    name: '业务理解',
     description: '识别客户问题、业务背景和关键风险点。',
     maxScore: 20,
   },
   {
     id: 'knowledge_usage',
-    title: '资料运用',
+    name: '资料运用',
     description: '准确转化场景资料中的核心知识。',
     maxScore: 20,
   },
   {
     id: 'conversation_progress',
-    title: '沟通推进',
+    name: '沟通推进',
     description: '通过澄清、安抚、追问推进下一步。',
     maxScore: 20,
   },
   {
     id: 'expression',
-    title: '话术表达',
+    name: '话术表达',
     description: '表达清楚、专业、自然，适合真实业务场景。',
     maxScore: 20,
   },
   {
     id: 'compliance',
-    title: '合规安全',
+    name: '合规安全',
     description: '避开红线、禁语和越界承诺。',
     maxScore: 20,
   },
