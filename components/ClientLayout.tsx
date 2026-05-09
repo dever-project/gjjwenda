@@ -25,6 +25,9 @@ const ROUTE_WARMUP_PATHS = [
   '/admin/users',
   '/student',
   '/student/records',
+  '/student/ai-training',
+  '/student/ai-training/__warmup__',
+  '/student/ai-training/__warmup__/report',
   '/student/exam/__warmup__',
   '/student/exam/__warmup__/result',
 ];
@@ -130,6 +133,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       items: [
         { name: '我的考试', href: '/student', icon: ListTodo },
         { name: '考试记录', href: '/student/records', icon: CheckSquare },
+        { name: 'AI情景训练', href: '/student/ai-training', icon: MessagesSquare },
         { name: '题库管理', href: '/admin/questions', icon: Database },
         { name: '考试配置', href: '/admin/configs', icon: Settings },
         { name: '成绩管理', href: '/admin/records', icon: FileSpreadsheet },
@@ -158,6 +162,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       items: [
         { name: '我的考试', href: '/student', icon: ListTodo },
         { name: '考试记录', href: '/student/records', icon: CheckSquare },
+        { name: 'AI情景训练', href: '/student/ai-training', icon: MessagesSquare },
       ]
     }
   ];
