@@ -38,6 +38,7 @@ coverage/
 .nyc_output/
 playwright-report/
 test-results/
+.worktrees/
 
 # TypeScript and framework caches
 *.tsbuildinfo
