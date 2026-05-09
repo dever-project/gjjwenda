@@ -52,7 +52,7 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const scenario = aiTrainingScenarios.find((item) => item.id === session?.scenarioId);
   const isOwner = Boolean(currentUser && session?.userId === currentUser.id);
   const canAccess = Boolean(currentUser?.role === 'admin' || isOwner);
-  const canInteract = Boolean(canAccess && session?.status === 'in_progress');
+  const canInteract = Boolean(isOwner && session?.status === 'in_progress');
   const trimmedInput = input.trim();
 
   const sortedMessages = useMemo(
@@ -70,6 +70,10 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const handleSend = async () => {
     const latestSession = getLatestSession();
     if (!latestSession || !scenario || !canInteract || !trimmedInput) {
+      return;
+    }
+    const latestIsOwner = Boolean(currentUser && latestSession.userId === currentUser.id);
+    if (!latestIsOwner || latestSession.status !== 'in_progress') {
       return;
     }
 
@@ -119,6 +123,10 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const handleEndTraining = async () => {
     const latestSession = getLatestSession();
     if (!latestSession || !scenario || !canInteract) {
+      return;
+    }
+    const latestIsOwner = Boolean(currentUser && latestSession.userId === currentUser.id);
+    if (!latestIsOwner || latestSession.status !== 'in_progress') {
       return;
     }
 
