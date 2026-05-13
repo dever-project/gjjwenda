@@ -10,10 +10,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Save, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+
 interface FeishuSettingsResponse {
   appId: string;
   hasSecret: boolean;
   secretPreview?: string;
+  openaiBaseUrl: string;
+  hasOpenaiApiKey: boolean;
+  openaiApiKeyPreview?: string;
+  openaiModel: string;
   sources: FeishuSource[];
 }
 
@@ -66,6 +73,10 @@ export default function AdminFeishuPage() {
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
   const [secretPreview, setSecretPreview] = useState('');
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(DEFAULT_OPENAI_BASE_URL);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiApiKeyPreview, setOpenaiApiKeyPreview] = useState('');
+  const [openaiModel, setOpenaiModel] = useState(DEFAULT_OPENAI_MODEL);
   const [sources, setSources] = useState<FeishuSource[]>(DEFAULT_SOURCES);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -76,9 +87,12 @@ export default function AdminFeishuPage() {
       .then((settings) => {
         setAppId(settings.appId ?? '');
         setSecretPreview(settings.secretPreview ?? '');
+        setOpenaiBaseUrl(settings.openaiBaseUrl ?? DEFAULT_OPENAI_BASE_URL);
+        setOpenaiApiKeyPreview(settings.openaiApiKeyPreview ?? '');
+        setOpenaiModel(settings.openaiModel ?? DEFAULT_OPENAI_MODEL);
         setSources(settings.sources.length > 0 ? settings.sources : DEFAULT_SOURCES);
       })
-      .catch((error) => toast.error(error instanceof Error ? error.message : '读取飞书设置失败'));
+      .catch((error) => toast.error(error instanceof Error ? error.message : '读取基础设置失败'));
   }, []);
 
   const handleSave = async () => {
@@ -87,12 +101,16 @@ export default function AdminFeishuPage() {
       const response = await fetch('/api/feishu/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId, appSecret, sources }),
+        body: JSON.stringify({ appId, appSecret, openaiBaseUrl, openaiApiKey, openaiModel, sources }),
       });
       const settings = await parseJsonResponse<FeishuSettingsResponse>(response);
       setSecretPreview(settings.secretPreview ?? '');
+      setOpenaiBaseUrl(settings.openaiBaseUrl ?? DEFAULT_OPENAI_BASE_URL);
+      setOpenaiApiKeyPreview(settings.openaiApiKeyPreview ?? '');
+      setOpenaiModel(settings.openaiModel ?? DEFAULT_OPENAI_MODEL);
       setAppSecret('');
-      toast.success('飞书设置已保存');
+      setOpenaiApiKey('');
+      toast.success('基础设置已保存');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '保存失败');
     } finally {
@@ -120,8 +138,8 @@ export default function AdminFeishuPage() {
     <div className="h-full overflow-y-auto p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">飞书设置</h1>
-          <p className="mt-1 text-sm text-slate-500">App Secret 只保存在服务端 SQLite，不进入前端全局状态。</p>
+          <h1 className="text-2xl font-bold text-slate-800">基础设置</h1>
+          <p className="mt-1 text-sm text-slate-500">飞书和 AI 凭据只保存在服务端 SQLite，不进入前端全局状态。</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleSave} disabled={isSaving}>
@@ -135,7 +153,7 @@ export default function AdminFeishuPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>应用凭据</CardTitle>
+          <CardTitle>飞书应用</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -148,6 +166,39 @@ export default function AdminFeishuPage() {
               value={appSecret}
               onChange={(event) => setAppSecret(event.target.value)}
               placeholder="留空表示不修改 Secret"
+              type="password"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI 模型</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>OpenAI Base URL</Label>
+            <Input
+              value={openaiBaseUrl}
+              onChange={(event) => setOpenaiBaseUrl(event.target.value)}
+              placeholder={DEFAULT_OPENAI_BASE_URL}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>模型名称</Label>
+            <Input
+              value={openaiModel}
+              onChange={(event) => setOpenaiModel(event.target.value)}
+              placeholder={DEFAULT_OPENAI_MODEL}
+            />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>API Key {openaiApiKeyPreview ? `（当前：${openaiApiKeyPreview}）` : ''}</Label>
+            <Input
+              value={openaiApiKey}
+              onChange={(event) => setOpenaiApiKey(event.target.value)}
+              placeholder="留空表示不修改 API Key"
               type="password"
             />
           </div>

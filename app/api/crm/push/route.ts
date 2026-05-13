@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 import { saveCrmPushPayloads } from '@/lib/server/crmRepository';
 
 export const runtime = 'nodejs';
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 type JsonObject = Record<string, unknown>;
 
 class BadRequestError extends Error {}
+class UnauthorizedError extends Error {}
+class ServerConfigError extends Error {}
 
 function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -118,9 +121,44 @@ function normalizePayloadItem(item: unknown, index: number) {
   return item;
 }
 
+function readConfiguredToken() {
+  return process.env.CRM_PUSH_TOKEN?.trim();
+}
+
+function isSameToken(receivedToken: string, configuredToken: string) {
+  const receivedBuffer = Buffer.from(receivedToken);
+  const configuredBuffer = Buffer.from(configuredToken);
+
+  if (receivedBuffer.length !== configuredBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(receivedBuffer, configuredBuffer);
+}
+
+function verifyCrmPushToken(request: Request) {
+  const configuredToken = readConfiguredToken();
+  if (!configuredToken) {
+    throw new ServerConfigError('CRM 推送 Token 未配置');
+  }
+
+  const receivedToken = request.headers.get('x-crm-push-token')?.trim();
+  if (!receivedToken || !isSameToken(receivedToken, configuredToken)) {
+    throw new UnauthorizedError('CRM 推送 Token 无效');
+  }
+}
+
 function errorResponse(error: unknown) {
   if (error instanceof BadRequestError) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  if (error instanceof UnauthorizedError) {
+    return NextResponse.json({ error: error.message }, { status: 401 });
+  }
+
+  if (error instanceof ServerConfigError) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   const message = error instanceof Error ? error.message : 'CRM 推送入库失败';
@@ -131,6 +169,7 @@ export async function GET() {
   return NextResponse.json({
     endpoint: '/api/crm/push',
     method: 'POST',
+    auth: 'POST 请求必须携带请求头 X-CRM-PUSH-TOKEN',
     body: 'JSON 对象、JSON 对象数组、{ records: [...] }、{ items: [...] }、{ data: [...] } 或表单字段',
     stored: '原始字段完整写入 payload_json，并抽取姓名、电话、地区、项目、渠道、会话等常用字段到独立列',
   });
@@ -138,6 +177,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    verifyCrmPushToken(request);
     const payload = await readPayload(request);
     const payloads = normalizePayloads(payload);
     const result = saveCrmPushPayloads(payloads);

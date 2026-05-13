@@ -163,7 +163,9 @@ export function ensureAppStateSchema() {
       difficulty TEXT NOT NULL,
       status TEXT NOT NULL,
       ai_role TEXT NOT NULL DEFAULT '',
+      trainee_role TEXT NOT NULL DEFAULT '',
       trainee_task TEXT NOT NULL DEFAULT '',
+      training_boundaries TEXT NOT NULL DEFAULT '',
       opening_message TEXT NOT NULL DEFAULT '',
       role_prompt TEXT NOT NULL,
       trainee_goal TEXT NOT NULL,
@@ -211,7 +213,9 @@ export function ensureAppStateSchema() {
   addColumnIfMissing('ai_training_scenarios', 'name', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing('ai_training_scenarios', 'stage', 'TEXT');
   addColumnIfMissing('ai_training_scenarios', 'ai_role', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('ai_training_scenarios', 'trainee_role', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing('ai_training_scenarios', 'trainee_task', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('ai_training_scenarios', 'training_boundaries', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing('ai_training_scenarios', 'opening_message', "TEXT NOT NULL DEFAULT ''");
 }
 
@@ -429,7 +433,17 @@ function normalizeAiTrainingScenarioPayload(value: unknown, index: number): AiTr
     description,
     difficulty,
     aiRole: optionalString(data.aiRole) ?? stringValue(data.rolePrompt),
+    traineeRole:
+      optionalString(data.traineeRole) ??
+      optionalString(data.employeeRole) ??
+      optionalString(data.userRole) ??
+      '员工',
     traineeTask: optionalString(data.traineeTask) ?? stringValue(data.traineeGoal),
+    trainingBoundaries:
+      optionalString(data.trainingBoundaries) ??
+      optionalString(data.scenarioBoundaries) ??
+      optionalString(data.boundaries) ??
+      '',
     openingMessage: optionalString(data.openingMessage) ?? description,
     scoringRubric: normalizeAiTrainingRubric(data.scoringRubric),
     redlineRules: normalizeAiTrainingRedlineRules(data.redlineRules),
@@ -746,7 +760,9 @@ function selectAiTrainingScenarios(): AiTrainingScenario[] {
     difficulty:
       row.difficulty === '中等' ? '中等' : row.difficulty === '高' ? '高' : '基础',
     aiRole: optionalString(row.ai_role) ?? stringValue(row.role_prompt),
+    traineeRole: optionalString(row.trainee_role) ?? '员工',
     traineeTask: optionalString(row.trainee_task) ?? stringValue(row.trainee_goal),
+    trainingBoundaries: optionalString(row.training_boundaries) ?? '',
     openingMessage: optionalString(row.opening_message) ?? String(row.description ?? ''),
     scoringRubric: normalizeAiTrainingRubric(parseJson(row.scoring_rubric, [])),
     redlineRules: parseJson(row.redline_rules, []),
@@ -929,11 +945,11 @@ export function replaceAppState(data: AppData): AppData {
   `);
   const insertAiTrainingScenario = db.prepare(`
     INSERT INTO ai_training_scenarios (
-      id, name, stage, title, description, difficulty, status, ai_role, trainee_task,
-      opening_message, role_prompt, trainee_goal, scoring_rubric, redline_rules,
-      documents, created_at, updated_at
+      id, name, stage, title, description, difficulty, status, ai_role, trainee_role,
+      trainee_task, training_boundaries, opening_message, role_prompt, trainee_goal,
+      scoring_rubric, redline_rules, documents, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAiTrainingSession = db.prepare(`
     INSERT INTO ai_training_sessions (
@@ -1129,7 +1145,9 @@ export function replaceAppState(data: AppData): AppData {
         scenario.difficulty,
         scenario.status,
         scenario.aiRole,
+        scenario.traineeRole,
         scenario.traineeTask,
+        scenario.trainingBoundaries,
         scenario.openingMessage,
         scenario.aiRole,
         scenario.traineeTask,

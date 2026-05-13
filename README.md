@@ -15,7 +15,7 @@ View your app in AI Studio: https://ai.studio/apps/6b0c0bfa-3481-4a08-aa21-cb9b1
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Optional: set `SQLITE_DB_PATH` in `.env.local` to choose the SQLite file path. The default is `data/gjj.sqlite`.
+2. Optional: set `SQLITE_DB_PATH` in `.env.local` to choose the SQLite file path. The default is `data/gjj.sqlite`.
+3. Configure OpenAI-compatible AI training settings in Admin > 基础设置.
 4. Run the app:
    `npm run dev`

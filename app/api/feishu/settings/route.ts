@@ -10,7 +10,7 @@ function asSources(value: unknown): FeishuSource[] {
 }
 
 function errorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : '飞书设置操作失败';
+  const message = error instanceof Error ? error.message : '基础设置操作失败';
   return NextResponse.json({ error: message }, { status: 500 });
 }
 
@@ -30,6 +30,9 @@ export async function PUT(request: Request) {
       saveFeishuSettings({
         appId: typeof data.appId === 'string' ? data.appId : '',
         appSecret: typeof data.appSecret === 'string' ? data.appSecret : undefined,
+        openaiBaseUrl: typeof data.openaiBaseUrl === 'string' ? data.openaiBaseUrl : undefined,
+        openaiApiKey: typeof data.openaiApiKey === 'string' ? data.openaiApiKey : undefined,
+        openaiModel: typeof data.openaiModel === 'string' ? data.openaiModel : undefined,
         sources: asSources(data.sources),
       })
     );

@@ -6,6 +6,8 @@ type AnyRow = Record<string, unknown>;
 const MANUAL_TYPES = new Set(['简答', '情景', '论述', '话术改写']);
 const OBJECTIVE_TYPES = new Set(['单选', '多选', '判断', '填空']);
 
+export const QUESTION_EXAM_GROUPS = ['新人考题', '岗位考题', '知识考题'];
+
 const CATEGORY_KEYWORDS: Array<{ categoryId: string; keywords: string[] }> = [
   { categoryId: 'cat_mkt', keywords: ['MKT', '客资', '线索', '来源平台'] },
   { categoryId: 'cat_npl', keywords: ['NPL', '六问', '十一维', '首呼', '客户画像', '有效腾房'] },
@@ -18,7 +20,7 @@ const CATEGORY_KEYWORDS: Array<{ categoryId: string; keywords: string[] }> = [
   { categoryId: 'cat_case', keywords: ['案例', '情景', '训练官', '复盘'] },
 ];
 
-const DOCX_EXAM_GROUP_ORDER = ['新人考题', '岗位考题', '知识考题'];
+const DOCX_EXAM_GROUP_ORDER = QUESTION_EXAM_GROUPS;
 
 const DOCX_LABEL_CATEGORIES: Array<{ categoryId: string; keywords: string[] }> = [
   { categoryId: 'cat_mkt', keywords: ['MKT'] },
@@ -179,6 +181,18 @@ function parseDocxQuestionLine(line: string) {
   };
 }
 
+function parseChoiceOption(line: string) {
+  const option = line.match(/^(?:[•·\-]\s*)?[（(]?([A-Da-d])[）).．、]\s*(.+)$/);
+  if (!option) {
+    return undefined;
+  }
+
+  return {
+    key: option[1].toUpperCase(),
+    value: option[2].trim(),
+  };
+}
+
 function stripQuestionPrefix(title: string) {
   return title
     .replace(/^【[^】]+】\s*/, '')
@@ -241,6 +255,30 @@ function isDocxRedlineQuestion(...texts: string[]) {
   ].some((keyword) => content.includes(keyword));
 }
 
+function hasBlankPlaceholder(title: string) {
+  return /_{2,}|＿{2,}|[（(]\s*[）)]/.test(title);
+}
+
+function splitAnswerParts(answer: string) {
+  return answer
+    .split(/[、,，;；\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeJudgeAnswerToken(answer: string) {
+  const value = answer.replace(/[。.!！?？\s]/g, '').toLowerCase();
+  if (value === '对' || value === '正确' || value === 'true' || value === '是') return '对';
+  if (value === '错' || value === '错误' || value === 'false' || value === '否') return '错';
+  return '';
+}
+
+function splitJudgeAnswerTokens(answer: string) {
+  return splitAnswerParts(answer)
+    .map(normalizeJudgeAnswerToken)
+    .filter(Boolean);
+}
+
 interface DocxQuestionBlock {
   questionNo: string;
   label?: string;
@@ -248,6 +286,139 @@ interface DocxQuestionBlock {
   sectionType?: QuestionType | '专题';
   sectionName: string;
   lines: string[];
+}
+
+interface ParsedQuestionFields {
+  options: Record<string, string>;
+  answer: string;
+  answerKey: string;
+  explanation: string;
+  bodyLines: string[];
+}
+
+function parseQuestionBlockFields(lines: string[]): ParsedQuestionFields {
+  const options: Record<string, string> = {};
+  const bodyLines: string[] = [];
+  let answer = '';
+  let answerKey = '';
+  let explanation = '';
+  let activeField: 'answer' | 'answerKey' | 'explanation' | undefined;
+
+  lines.forEach((line) => {
+    const option = parseChoiceOption(line);
+    if (option) {
+      options[option.key] = option.value;
+      activeField = undefined;
+      return;
+    }
+
+    const answerLine = line.match(/^(?:标准)?答案[：:；;]\s*(.*)$/);
+    if (answerLine) {
+      answer = answerLine[1].trim();
+      activeField = 'answer';
+      return;
+    }
+
+    const answerKeyLine = line.match(/^答案要点[：:]\s*(.*)$/);
+    if (answerKeyLine) {
+      answerKey = answerKeyLine[1].trim();
+      activeField = 'answerKey';
+      return;
+    }
+
+    const rewriteLine = line.match(/^推荐改写[：:]\s*(.*)$/);
+    if (rewriteLine) {
+      answerKey = rewriteLine[1].trim();
+      activeField = 'answerKey';
+      return;
+    }
+
+    const explanationLine = line.match(/^解析[：:]\s*(.*)$/);
+    if (explanationLine) {
+      explanation = explanationLine[1].trim();
+      activeField = 'explanation';
+      return;
+    }
+
+    if (activeField === 'answer') {
+      answer = `${answer} ${line}`.trim();
+    } else if (activeField === 'answerKey') {
+      answerKey = `${answerKey} ${line}`.trim();
+    } else if (activeField === 'explanation') {
+      explanation = `${explanation} ${line}`.trim();
+    } else {
+      bodyLines.push(line);
+    }
+  });
+
+  return { options, answer, answerKey, explanation, bodyLines };
+}
+
+function isUsableQuestion(question: Question) {
+  if (!question.title) return false;
+  if (MANUAL_TYPES.has(String(question.type))) {
+    return Boolean(question.answerKey || question.rubric);
+  }
+
+  if (OBJECTIVE_TYPES.has(String(question.type))) {
+    return Boolean(question.correctAnswer);
+  }
+
+  return true;
+}
+
+function createImportedQuestion({
+  id,
+  questionNo,
+  examGroup,
+  label,
+  title,
+  type,
+  options,
+  answer,
+  answerKey,
+  explanation,
+  categoryTexts,
+}: {
+  id: string;
+  questionNo: string;
+  examGroup: string;
+  label?: string;
+  title: string;
+  type: QuestionType;
+  options: Record<string, string>;
+  answer: string;
+  answerKey: string;
+  explanation: string;
+  categoryTexts: string[];
+}): Question {
+  const normalizedAnswer = normalizeDocxAnswer(answer, type);
+  const manual = MANUAL_TYPES.has(type);
+  const gradingMode: GradingMode = manual ? 'manual' : 'auto';
+  const categoryId =
+    inferLabelCategoryId(label) ??
+    inferCategoryId(...categoryTexts, title, explanation, answerKey, answer);
+
+  return {
+    id,
+    questionNo,
+    examGroup,
+    categoryId,
+    type,
+    title,
+    optionA: options.A,
+    optionB: options.B,
+    optionC: options.C,
+    optionD: options.D,
+    correctAnswer: manual ? '' : normalizedAnswer,
+    answerKey: manual ? answerKey || answer : answerKey || undefined,
+    explanation: explanation || undefined,
+    rubric: manual ? answerKey || answer || undefined : undefined,
+    difficulty: '基础',
+    score: defaultScore(type),
+    gradingMode,
+    isRedline: isDocxRedlineQuestion(title, answer, answerKey, explanation),
+  };
 }
 
 function splitDocxQuestionBlocks(text: string) {
@@ -287,56 +458,7 @@ function splitDocxQuestionBlocks(text: string) {
 export function parseTeacherDocxQuestions(text: string, idPrefix = `docx_${Date.now()}`): Question[] {
   return splitDocxQuestionBlocks(text)
     .map((block, index): Question => {
-      const options: Record<string, string> = {};
-      let answer = '';
-      let answerKey = '';
-      let explanation = '';
-      let activeField: 'answer' | 'answerKey' | 'explanation' | undefined;
-
-      block.lines.forEach((line) => {
-        const option = line.match(/^(?:[•·\-]\s*)?([A-Da-d])[.．、]\s*(.+)$/);
-        if (option) {
-          options[option[1].toUpperCase()] = option[2].trim();
-          activeField = undefined;
-          return;
-        }
-
-        const answerLine = line.match(/^(?:标准)?答案[：:]\s*(.+)$/);
-        if (answerLine) {
-          answer = answerLine[1].trim();
-          activeField = 'answer';
-          return;
-        }
-
-        const answerKeyLine = line.match(/^答案要点[：:]\s*(.+)$/);
-        if (answerKeyLine) {
-          answerKey = answerKeyLine[1].trim();
-          activeField = 'answerKey';
-          return;
-        }
-
-        const rewriteLine = line.match(/^推荐改写[：:]\s*(.+)$/);
-        if (rewriteLine) {
-          answerKey = rewriteLine[1].trim();
-          activeField = 'answerKey';
-          return;
-        }
-
-        const explanationLine = line.match(/^解析[：:]\s*(.+)$/);
-        if (explanationLine) {
-          explanation = explanationLine[1].trim();
-          activeField = 'explanation';
-          return;
-        }
-
-        if (activeField === 'answer') {
-          answer = `${answer} ${line}`.trim();
-        } else if (activeField === 'answerKey') {
-          answerKey = `${answerKey} ${line}`.trim();
-        } else if (activeField === 'explanation') {
-          explanation = `${explanation} ${line}`.trim();
-        }
-      });
+      const { options, answer, answerKey, explanation } = parseQuestionBlockFields(block.lines);
 
       const type = inferDocxQuestionType(
         block.title,
@@ -345,47 +467,175 @@ export function parseTeacherDocxQuestions(text: string, idPrefix = `docx_${Date.
         answer,
         block.label
       );
-      const normalizedAnswer = normalizeDocxAnswer(answer, type);
-      const manual = MANUAL_TYPES.has(type);
-      const gradingMode: GradingMode = manual ? 'manual' : 'auto';
       const title = stripQuestionPrefix(block.title);
-      const categoryId =
-        inferLabelCategoryId(block.label) ??
-        inferCategoryId(block.label, block.sectionName, title, explanation, answerKey);
 
-      return {
+      return createImportedQuestion({
         id: `${idPrefix}_${index + 1}`,
         questionNo: block.questionNo,
         examGroup: block.sectionName,
-        categoryId,
+        label: block.label,
         type,
         title,
-        optionA: options.A,
-        optionB: options.B,
-        optionC: options.C,
-        optionD: options.D,
-        correctAnswer: manual ? '' : normalizedAnswer,
-        answerKey: manual ? answerKey || answer : answerKey || undefined,
-        explanation: explanation || undefined,
-        rubric: manual ? answerKey || answer || undefined : undefined,
-        difficulty: '基础',
-        score: defaultScore(type),
-        gradingMode,
-        isRedline: isDocxRedlineQuestion(title, answer, answerKey, explanation),
-      };
+        options,
+        answer,
+        answerKey,
+        explanation,
+        categoryTexts: [block.label ?? '', block.sectionName],
+      });
     })
-    .filter((question) => {
-      if (!question.title) return false;
-      if (MANUAL_TYPES.has(String(question.type))) {
-        return Boolean(question.answerKey || question.rubric);
+    .filter(isUsableQuestion);
+}
+
+function splitPlainTextQuestionBlocks(text: string, examGroup: string): DocxQuestionBlock[] {
+  const blocks: DocxQuestionBlock[] = [];
+  let current: DocxQuestionBlock | null = null;
+
+  normalizeDocxLines(text).forEach((line) => {
+    const questionLine = parseDocxQuestionLine(line);
+    if (questionLine) {
+      current = {
+        questionNo: questionLine.questionNo,
+        label: questionLine.label,
+        title: questionLine.title,
+        sectionName: examGroup,
+        lines: [],
+      };
+      blocks.push(current);
+      return;
+    }
+
+    current?.lines.push(line);
+  });
+
+  return blocks;
+}
+
+function inferPlainTextQuestionType(title: string, optionCount: number, answer: string): QuestionType {
+  const compactTitle = title.replace(/\s+/g, '');
+  const choiceAnswerLength = answer.replace(/[^A-Da-d]/g, '').length;
+  const judgeAnswerCount = splitJudgeAnswerTokens(answer).length;
+
+  if (compactTitle.includes('多选')) return '多选';
+  if (compactTitle.includes('单选')) return '单选';
+  if (compactTitle.includes('判断') && judgeAnswerCount <= 1) return '判断';
+  if (compactTitle.includes('问答题') || compactTitle.includes('简答')) return '简答';
+
+  if (optionCount > 0) {
+    return choiceAnswerLength > 1 ? '多选' : '单选';
+  }
+
+  if (judgeAnswerCount === 1) return '判断';
+  if (hasBlankPlaceholder(title)) return '填空';
+
+  return answer.length > 18 ? '简答' : '填空';
+}
+
+function getPlainTextQuestionTitle(block: DocxQuestionBlock, bodyLines: string[]) {
+  return stripQuestionPrefix([block.title, ...bodyLines].join(' ').replace(/\s+/g, ' ').trim());
+}
+
+function parseSubQuestionLine(line: string) {
+  const subQuestion = line.match(/^[（(]?([0-9一二三四五六七八九十]+)[）).、]\s*(.+)$/);
+  if (!subQuestion) {
+    return undefined;
+  }
+
+  return {
+    questionNo: subQuestion[1],
+    title: subQuestion[2].replace(/[（(]\s*[）)]\s*$/, '').trim(),
+  };
+}
+
+function createPlainTextJudgementQuestions({
+  block,
+  fields,
+  idPrefix,
+  nextIndex,
+}: {
+  block: DocxQuestionBlock;
+  fields: ParsedQuestionFields;
+  idPrefix: string;
+  nextIndex: () => number;
+}) {
+  if (!block.title.includes('判断')) {
+    return [];
+  }
+
+  const answerTokens = splitJudgeAnswerTokens(fields.answer);
+  const subQuestions = fields.bodyLines.map(parseSubQuestionLine).filter(Boolean) as Array<{
+    questionNo: string;
+    title: string;
+  }>;
+
+  if (subQuestions.length === 0 || answerTokens.length < subQuestions.length) {
+    return [];
+  }
+
+  return subQuestions.map((subQuestion, index) =>
+    createImportedQuestion({
+      id: `${idPrefix}_${nextIndex()}`,
+      questionNo: `${block.questionNo}-${subQuestion.questionNo}`,
+      examGroup: block.sectionName,
+      label: block.label,
+      type: '判断',
+      title: subQuestion.title,
+      options: {},
+      answer: answerTokens[index],
+      answerKey: '',
+      explanation: fields.explanation,
+      categoryTexts: [block.label ?? '', block.sectionName],
+    })
+  );
+}
+
+export function parsePlainTextQuestions(
+  text: string,
+  {
+    idPrefix = `txt_${Date.now()}`,
+    examGroup = QUESTION_EXAM_GROUPS[0],
+  }: {
+    idPrefix?: string;
+    examGroup?: string;
+  } = {}
+): Question[] {
+  let questionIndex = 0;
+  const nextIndex = () => {
+    questionIndex += 1;
+    return questionIndex;
+  };
+
+  return splitPlainTextQuestionBlocks(text, examGroup)
+    .flatMap((block) => {
+      const fields = parseQuestionBlockFields(block.lines);
+      const judgementQuestions = createPlainTextJudgementQuestions({
+        block,
+        fields,
+        idPrefix,
+        nextIndex,
+      });
+
+      if (judgementQuestions.length > 0) {
+        return judgementQuestions;
       }
 
-      if (OBJECTIVE_TYPES.has(String(question.type))) {
-        return Boolean(question.correctAnswer);
-      }
+      const title = getPlainTextQuestionTitle(block, fields.bodyLines);
+      const type = inferPlainTextQuestionType(title, Object.keys(fields.options).length, fields.answer);
 
-      return true;
-    });
+      return createImportedQuestion({
+        id: `${idPrefix}_${nextIndex()}`,
+        questionNo: block.questionNo,
+        examGroup: block.sectionName,
+        label: block.label,
+        type,
+        title,
+        options: fields.options,
+        answer: fields.answer,
+        answerKey: fields.answerKey,
+        explanation: fields.explanation,
+        categoryTexts: [block.label ?? '', block.sectionName],
+      });
+    })
+    .filter(isUsableQuestion);
 }
 
 function getFileBaseName(fileName: string) {
@@ -414,11 +664,12 @@ function sortDocxExamGroups(groupA: string, groupB: string) {
   return groupA.localeCompare(groupB, 'zh-CN');
 }
 
-function createDocxExamConfig(
+function createImportedExamConfig(
   name: string,
   stage: string,
   questions: Question[],
-  id: string
+  id: string,
+  feishuUsage: string
 ): ExamConfig {
   return {
     id,
@@ -433,7 +684,7 @@ function createDocxExamConfig(
     requiresLearning: false,
     redlinePolicy: 'fail_on_any',
     knowledgePages: '飞书知识库主教材、案例库、教师版题库',
-    feishuUsage: '从教师版 DOCX 题库导入生成',
+    feishuUsage,
     createdAt: Date.now(),
   };
 }
@@ -449,11 +700,12 @@ export function createDocxExamConfigs(
 
   if (!hasKnownDocxExamGroups(questions)) {
     return [
-      createDocxExamConfig(
+      createImportedExamConfig(
         `${getFileBaseName(fileName)}_综合认证`,
         '考试阶段',
         questions,
-        idPrefix
+        idPrefix,
+        '从教师版 DOCX 题库导入生成'
       ),
     ];
   }
@@ -466,13 +718,28 @@ export function createDocxExamConfigs(
   return [...groups.entries()]
     .sort(([groupA], [groupB]) => sortDocxExamGroups(groupA, groupB))
     .map(([groupName, groupQuestions], index) =>
-      createDocxExamConfig(
+      createImportedExamConfig(
         `${groupName}认证`,
         groupName,
         groupQuestions,
-        `${idPrefix}_${index + 1}`
+        `${idPrefix}_${index + 1}`,
+        '从教师版 DOCX 题库导入生成'
       )
     );
+}
+
+export function createPlainTextExamConfig(
+  examGroup: string,
+  questions: Question[],
+  id = `ec_txt_${Date.now()}`
+): ExamConfig {
+  return createImportedExamConfig(
+    `${examGroup}认证`,
+    examGroup,
+    questions,
+    id,
+    '从 TXT 题库导入生成'
+  );
 }
 
 function createRules(typeCombination: string, suggestedCount: number, categoryIds: string[]): ExamQuestionRule[] {

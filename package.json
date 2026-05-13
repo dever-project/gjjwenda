@@ -7,6 +7,8 @@
     "build": "next build",
     "package:release": "bash scripts/package-release.sh",
     "start": "next start",
+    "test:crm-admin-records": "node scripts/test-crm-admin-records.mjs",
+    "test:crm-push": "node scripts/test-crm-push.mjs",
     "lint": "eslint .",
     "test:ai-training-state": "node scripts/test-ai-training-state.mjs",
     "test:ai-training-flow": "node scripts/test-ai-training-flow.mjs",

@@ -293,7 +293,9 @@ export interface AiTrainingScenario {
   description: string;
   difficulty: AiTrainingDifficulty;
   aiRole: string;
+  traineeRole: string;
   traineeTask: string;
+  trainingBoundaries: string;
   openingMessage: string;
   scoringRubric: AiTrainingRubricItem[];
   redlineRules: AiTrainingRedlineRule[];

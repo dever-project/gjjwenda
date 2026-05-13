@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ChangeEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -23,7 +24,7 @@ import type {
   AiTrainingScenarioStatus,
 } from '@/lib/appTypes';
 import { useStore } from '@/store/useStore';
-import { Archive, FileText, MessagesSquare, Pencil, Plus, Trash2, UploadCloud } from 'lucide-react';
+import { Archive, ClipboardList, FileText, MessagesSquare, Pencil, Plus, Trash2, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DIFFICULTY_OPTIONS: AiTrainingDifficulty[] = ['基础', '中等', '高'];
@@ -44,6 +45,10 @@ function getCurrentTimestamp() {
   return new Date().getTime();
 }
 
+function scenarioField(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function createEmptyScenario(): AiTrainingScenario {
   const now = getCurrentTimestamp();
   return {
@@ -53,7 +58,9 @@ function createEmptyScenario(): AiTrainingScenario {
     description: '',
     difficulty: '中等',
     aiRole: '',
+    traineeRole: '',
     traineeTask: '',
+    trainingBoundaries: '',
     openingMessage: '',
     scoringRubric: DEFAULT_AI_TRAINING_RUBRIC.map((item) => ({ ...item })),
     redlineRules: DEFAULT_AI_TRAINING_REDLINES.map((item) => ({ ...item })),
@@ -67,6 +74,8 @@ function createEmptyScenario(): AiTrainingScenario {
 function cloneScenario(scenario: AiTrainingScenario): AiTrainingScenario {
   return {
     ...scenario,
+    traineeRole: scenario.traineeRole || '员工',
+    trainingBoundaries: scenario.trainingBoundaries || '',
     scoringRubric: scenario.scoringRubric.map((item) => ({ ...item })),
     redlineRules: scenario.redlineRules.map((item) => ({ ...item })),
     documents: scenario.documents.map((item) => ({ ...item })),
@@ -74,10 +83,11 @@ function cloneScenario(scenario: AiTrainingScenario): AiTrainingScenario {
 }
 
 function validateScenario(scenario: AiTrainingScenario, publish: boolean) {
-  if (!scenario.name.trim()) return '请填写场景名称';
-  if (!scenario.aiRole.trim()) return '请填写 AI 扮演角色';
-  if (!scenario.traineeTask.trim()) return '请填写员工任务';
-  if (!scenario.openingMessage.trim()) return '请填写 AI 开场白';
+  if (!scenarioField(scenario.name)) return '请填写场景名称';
+  if (!scenarioField(scenario.aiRole)) return '请填写 AI 扮演角色';
+  if (!scenarioField(scenario.traineeRole)) return '请填写员工扮演角色';
+  if (!scenarioField(scenario.traineeTask)) return '请填写员工训练目标';
+  if (!scenarioField(scenario.openingMessage)) return '请填写 AI 开场白';
   if (publish && !isValidRubricTotal(scenario.scoringRubric)) return '评分维度总分必须等于 100';
   return '';
 }
@@ -85,6 +95,8 @@ function validateScenario(scenario: AiTrainingScenario, publish: boolean) {
 function withTruncatedDocuments(scenario: AiTrainingScenario): AiTrainingScenario {
   return {
     ...scenario,
+    traineeRole: scenario.traineeRole || '员工',
+    trainingBoundaries: scenario.trainingBoundaries || '',
     documents: truncateScenarioDocuments(scenario.documents),
   };
 }
@@ -101,6 +113,7 @@ function formatDate(timestamp: number) {
 
 export default function AiTrainingAdminPage() {
   const { aiTrainingScenarios, upsertAiTrainingScenario, deleteAiTrainingScenario } = useStore();
+  const router = useRouter();
   const [editingScenario, setEditingScenario] = useState<AiTrainingScenario | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -259,10 +272,16 @@ export default function AiTrainingAdminPage() {
           </h2>
           <p className="mt-1 text-xs font-medium text-slate-500">管理 AI 对练场景、资料、评分维度和红线规则</p>
         </div>
-        <Button onClick={openCreateDialog} className="bg-orange-600 hover:bg-orange-700">
-          <Plus className="mr-2 h-4 w-4" />
-          新建场景
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => router.push('/admin/ai-training/records')}>
+            <ClipboardList className="mr-2 h-4 w-4" />
+            训练记录
+          </Button>
+          <Button onClick={openCreateDialog} className="bg-orange-600 hover:bg-orange-700">
+            <Plus className="mr-2 h-4 w-4" />
+            新建场景
+          </Button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col p-6">
@@ -294,7 +313,7 @@ export default function AiTrainingAdminPage() {
                         {scenario.name}
                       </div>
                       <div className="mt-1 truncate text-[11px] text-slate-500" title={scenario.traineeTask}>
-                        {scenario.traineeTask || '未填写员工任务'}
+                        员工：{scenario.traineeRole || '员工'} · {scenario.traineeTask || '未填写训练目标'}
                       </div>
                     </TableCell>
                     <TableCell>{scenario.stage || '-'}</TableCell>
@@ -402,16 +421,25 @@ export default function AiTrainingAdminPage() {
                   <Textarea
                     value={editingScenario.aiRole}
                     onChange={(event) => updateScenario({ aiRole: event.target.value })}
-                    placeholder="说明 AI 要扮演的客户、同事或业务对象"
+                    placeholder="例如：有购买意向但预算有限的客户、销售顾问、面试官"
                     className="min-h-24"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>员工任务</Label>
+                  <Label>员工扮演角色</Label>
+                  <Textarea
+                    value={editingScenario.traineeRole}
+                    onChange={(event) => updateScenario({ traineeRole: event.target.value })}
+                    placeholder="例如：销售顾问、客户、客服、面试候选人"
+                    className="min-h-24"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>员工训练目标</Label>
                   <Textarea
                     value={editingScenario.traineeTask}
                     onChange={(event) => updateScenario({ traineeTask: event.target.value })}
-                    placeholder="说明员工在对练中需要完成的目标"
+                    placeholder="说明员工在这个角色下需要完成的目标，例如识别需求、提出异议、促成购买或判断销售表达是否合规"
                     className="min-h-24"
                   />
                 </div>
@@ -420,8 +448,8 @@ export default function AiTrainingAdminPage() {
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900">场景资料</h3>
-                    <p className="text-xs text-slate-500">支持 DOCX、TXT、MD，多文件上传；PDF 会被解析 helper 拒绝。</p>
+                    <h3 className="text-sm font-semibold text-slate-900">场景资料与边界</h3>
+                    <p className="text-xs text-slate-500">边界单独生效；资料用于提供案例、话术和业务知识。</p>
                   </div>
                   <label className="inline-flex h-9 cursor-pointer items-center rounded-md bg-slate-900 px-3 text-xs font-medium text-white hover:bg-slate-800">
                     <UploadCloud className="mr-2 h-4 w-4" />
@@ -435,6 +463,15 @@ export default function AiTrainingAdminPage() {
                       className="hidden"
                     />
                   </label>
+                </div>
+                <div className="space-y-2">
+                  <Label>训练边界</Label>
+                  <Textarea
+                    value={editingScenario.trainingBoundaries}
+                    onChange={(event) => updateScenario({ trainingBoundaries: event.target.value })}
+                    placeholder="说明角色边界、沟通范围、禁止越界内容。例如：AI 不主动给标准答案；员工不得跳出客户身份；不得承诺司法结果。"
+                    className="min-h-20"
+                  />
                 </div>
                 <div className="space-y-2 rounded-lg border border-slate-200 p-3">
                   {editingScenario.documents.length === 0 ? (

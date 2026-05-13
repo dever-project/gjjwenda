@@ -82,7 +82,7 @@ export default function StudentAiTrainingPage() {
             AI情景训练
           </h2>
           <p className="mt-1 text-xs font-medium text-slate-500">
-            选择已发布场景，与 AI 客户完成对练并生成反馈报告。
+            选择已发布场景，与 AI 完成角色对练并生成反馈报告。
           </p>
         </div>
       </header>
@@ -112,9 +112,19 @@ export default function StudentAiTrainingPage() {
                   </CardHeader>
                   <CardContent className="flex-1 space-y-4 text-sm text-slate-600">
                     <p className="line-clamp-3">{scenario.description || '管理员暂未填写场景说明。'}</p>
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <div className="mb-1 text-xs font-semibold text-slate-500">员工任务</div>
-                      <p className="line-clamp-3 text-slate-700">{scenario.traineeTask}</p>
+                    <div className="grid gap-3 text-xs">
+                      <div className="rounded-lg bg-slate-50 p-3">
+                        <div className="mb-1 font-semibold text-slate-500">AI 扮演</div>
+                        <p className="line-clamp-2 text-sm text-slate-700">{scenario.aiRole}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 p-3">
+                        <div className="mb-1 font-semibold text-slate-500">你扮演</div>
+                        <p className="line-clamp-2 text-sm text-slate-700">{scenario.traineeRole || '员工'}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 p-3">
+                        <div className="mb-1 font-semibold text-slate-500">训练目标</div>
+                        <p className="line-clamp-3 text-sm text-slate-700">{scenario.traineeTask}</p>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div className="rounded-lg border border-slate-200 p-3">

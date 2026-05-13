@@ -22,6 +22,58 @@ export interface CrmPushSaveResult {
   records: CrmSavedRecord[];
 }
 
+export interface CrmRecordListItem {
+  id: string;
+  externalId?: string;
+  externalIdSource?: string;
+  customerName?: string;
+  mobile?: string;
+  tel?: string;
+  email?: string;
+  weixin?: string;
+  qq?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  area?: string;
+  subjectName?: string;
+  schoolName?: string;
+  companyId?: string;
+  companyName?: string;
+  promotionId?: string;
+  promotionName?: string;
+  searchHost?: string;
+  searchEngine?: string;
+  chatId?: string;
+  chatUrl?: string;
+  firstUrl?: string;
+  referUrl?: string;
+  note?: string;
+  feishuRecordId?: string;
+  feishuSyncedAt?: number;
+  feishuSyncError?: string;
+  payload: CrmPayload;
+  receivedAt: number;
+  updatedAt: number;
+}
+
+export interface CrmRecordListResult {
+  records: CrmRecordListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PendingCrmFeishuRecord extends CrmRecordListItem {
+  payload: CrmPayload;
+}
+
+interface ListCrmRecordsOptions {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 interface CrmExtractedFields {
   id: string;
   externalId?: string;
@@ -108,6 +160,9 @@ export function ensureCrmSchema() {
       first_url TEXT,
       refer_url TEXT,
       note TEXT,
+      feishu_record_id TEXT,
+      feishu_synced_at INTEGER,
+      feishu_sync_error TEXT,
       payload_json TEXT NOT NULL,
       received_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -140,6 +195,9 @@ export function ensureCrmSchema() {
   addColumnIfMissing('crm_records', 'first_url', 'TEXT');
   addColumnIfMissing('crm_records', 'refer_url', 'TEXT');
   addColumnIfMissing('crm_records', 'note', 'TEXT');
+  addColumnIfMissing('crm_records', 'feishu_record_id', 'TEXT');
+  addColumnIfMissing('crm_records', 'feishu_synced_at', 'INTEGER');
+  addColumnIfMissing('crm_records', 'feishu_sync_error', 'TEXT');
   addColumnIfMissing('crm_records', 'payload_json', "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing('crm_records', 'received_at', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('crm_records', 'updated_at', 'INTEGER NOT NULL DEFAULT 0');
@@ -157,6 +215,9 @@ export function ensureCrmSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_crm_records_tel
       ON crm_records (tel);
+
+    CREATE INDEX IF NOT EXISTS idx_crm_records_feishu_sync
+      ON crm_records (feishu_synced_at, updated_at);
   `);
 }
 
@@ -301,6 +362,75 @@ function rowInteger(value: unknown, fallback: number) {
   }
 
   return fallback;
+}
+
+function optionalRowInteger(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  return undefined;
+}
+
+function rowText(row: Row, key: string) {
+  const value = row[key];
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function parsePayloadJson(value: unknown) {
+  if (typeof value !== 'string' || !value) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as CrmPayload)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function toCrmRecordListItem(row: Row): CrmRecordListItem {
+  return {
+    id: String(row.id),
+    externalId: rowText(row, 'external_id'),
+    externalIdSource: rowText(row, 'external_id_source'),
+    customerName: rowText(row, 'customer_name'),
+    mobile: rowText(row, 'mobile'),
+    tel: rowText(row, 'tel'),
+    email: rowText(row, 'email'),
+    weixin: rowText(row, 'weixin'),
+    qq: rowText(row, 'qq'),
+    province: rowText(row, 'province'),
+    city: rowText(row, 'city'),
+    district: rowText(row, 'district'),
+    area: rowText(row, 'area'),
+    subjectName: rowText(row, 'subject_name'),
+    schoolName: rowText(row, 'school_name'),
+    companyId: rowText(row, 'company_id'),
+    companyName: rowText(row, 'company_name'),
+    promotionId: rowText(row, 'promotion_id'),
+    promotionName: rowText(row, 'promotion_name'),
+    searchHost: rowText(row, 'search_host'),
+    searchEngine: rowText(row, 'search_engine'),
+    chatId: rowText(row, 'chat_id'),
+    chatUrl: rowText(row, 'chat_url'),
+    firstUrl: rowText(row, 'first_url'),
+    referUrl: rowText(row, 'refer_url'),
+    note: rowText(row, 'note'),
+    feishuRecordId: rowText(row, 'feishu_record_id'),
+    feishuSyncedAt: optionalRowInteger(row.feishu_synced_at),
+    feishuSyncError: rowText(row, 'feishu_sync_error'),
+    payload: parsePayloadJson(row.payload_json),
+    receivedAt: rowInteger(row.received_at, 0),
+    updatedAt: rowInteger(row.updated_at, 0),
+  };
 }
 
 function insertCrmRecord(fields: CrmExtractedFields) {
@@ -487,4 +617,165 @@ export function saveCrmPushPayloads(payloads: CrmPayload[]): CrmPushSaveResult {
     count: records.length,
     records,
   };
+}
+
+export function listCrmRecords(options: ListCrmRecordsOptions = {}): CrmRecordListResult {
+  ensureCrmSchema();
+
+  const page = Math.max(1, Math.floor(options.page ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(options.pageSize ?? 50)));
+  const offset = (page - 1) * pageSize;
+  const search = options.search?.trim();
+  const whereParams: string[] = [];
+  let whereSql = '';
+
+  if (search) {
+    const keyword = `%${search}%`;
+    whereSql = `
+      WHERE id LIKE ?
+        OR customer_name LIKE ?
+        OR mobile LIKE ?
+        OR tel LIKE ?
+        OR city LIKE ?
+        OR province LIKE ?
+        OR subject_name LIKE ?
+        OR promotion_name LIKE ?
+        OR search_host LIKE ?
+        OR external_id LIKE ?
+        OR note LIKE ?
+    `;
+    whereParams.push(keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword, keyword);
+  }
+
+  const totalRow = getDatabase()
+    .prepare(`SELECT COUNT(*) AS total FROM crm_records ${whereSql}`)
+    .get(...whereParams) as Row | undefined;
+
+  const rows = getDatabase()
+    .prepare(`
+      SELECT
+        id,
+        external_id,
+        external_id_source,
+        customer_name,
+        mobile,
+        tel,
+        email,
+        weixin,
+        qq,
+        province,
+        city,
+        district,
+        area,
+        subject_name,
+        school_name,
+        company_id,
+        company_name,
+        promotion_id,
+        promotion_name,
+        search_host,
+        search_engine,
+        chat_id,
+        chat_url,
+        first_url,
+        refer_url,
+        note,
+        feishu_record_id,
+        feishu_synced_at,
+        feishu_sync_error,
+        payload_json,
+        received_at,
+        updated_at
+      FROM crm_records
+      ${whereSql}
+      ORDER BY updated_at DESC, received_at DESC
+      LIMIT ? OFFSET ?
+    `)
+    .all(...whereParams, pageSize, offset) as Row[];
+
+  return {
+    records: rows.map(toCrmRecordListItem),
+    total: rowInteger(totalRow?.total, 0),
+    page,
+    pageSize,
+  };
+}
+
+export function listPendingCrmRecordsForFeishuSync(limit = 50): PendingCrmFeishuRecord[] {
+  ensureCrmSchema();
+
+  const safeLimit = Math.min(200, Math.max(1, Math.floor(limit)));
+  const rows = getDatabase()
+    .prepare(`
+      SELECT *
+      FROM crm_records
+      WHERE feishu_synced_at IS NULL
+        OR updated_at > feishu_synced_at
+        OR (feishu_sync_error IS NOT NULL AND feishu_sync_error <> '')
+      ORDER BY updated_at DESC, received_at DESC
+      LIMIT ?
+    `)
+    .all(safeLimit) as Row[];
+
+  return rows.map(toCrmRecordListItem);
+}
+
+export function countPendingCrmRecordsForFeishuSync() {
+  ensureCrmSchema();
+
+  const row = getDatabase()
+    .prepare(`
+      SELECT COUNT(*) AS total
+      FROM crm_records
+      WHERE feishu_synced_at IS NULL
+        OR updated_at > feishu_synced_at
+        OR (feishu_sync_error IS NOT NULL AND feishu_sync_error <> '')
+    `)
+    .get() as Row | undefined;
+
+  return rowInteger(row?.total, 0);
+}
+
+export function markCrmRecordFeishuSynced(recordId: string, feishuRecordId: string, syncedAt: number) {
+  ensureCrmSchema();
+
+  getDatabase()
+    .prepare(`
+      UPDATE crm_records
+      SET feishu_record_id = ?,
+          feishu_synced_at = ?,
+          feishu_sync_error = NULL
+      WHERE id = ?
+    `)
+    .run(feishuRecordId, syncedAt, recordId);
+}
+
+export function markCrmRecordFeishuSyncFailed(recordId: string, errorMessage: string) {
+  ensureCrmSchema();
+
+  getDatabase()
+    .prepare(`
+      UPDATE crm_records
+      SET feishu_sync_error = ?
+      WHERE id = ?
+    `)
+    .run(errorMessage, recordId);
+}
+
+export function clearCrmFeishuSyncState() {
+  ensureCrmSchema();
+
+  const result = getDatabase()
+    .prepare(`
+      UPDATE crm_records
+      SET feishu_record_id = NULL,
+          feishu_synced_at = NULL,
+          feishu_sync_error = NULL
+      WHERE feishu_record_id IS NOT NULL
+        OR feishu_synced_at IS NOT NULL
+        OR (feishu_sync_error IS NOT NULL AND feishu_sync_error <> '')
+    `)
+    .run();
+
+  return Number(result.changes ?? 0);
 }

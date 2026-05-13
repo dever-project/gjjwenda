@@ -1,7 +1,7 @@
-import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { buildReportPrompt, hasValidAiTrainingMessages, parseReportJson } from '@/lib/ai-training/prompts';
 import { readAppState } from '@/lib/server/appStateRepository';
+import { generateOpenAiText, isOpenAiUserFacingError } from '@/lib/server/openaiClient';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,6 +40,10 @@ function validatePayload(payload: unknown): { data?: ValidPayload; error?: strin
 
 function errorResponse(error: unknown) {
   console.error('AI training report generation failed', error);
+  if (isOpenAiUserFacingError(error) && error instanceof Error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
   return NextResponse.json({ error: '训练报告生成失败，请稍后重试' }, { status: 500 });
 }
 
@@ -71,25 +75,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'AI 情景训练会话消息无效' }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: '缺少 GEMINI_API_KEY，无法调用 AI 情景训练' }, { status: 500 });
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = buildReportPrompt(scenario, session.messages);
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt.contents,
-      config: {
-        systemInstruction: prompt.systemInstruction,
-        responseMimeType: 'application/json',
-      },
-    });
-    const text = response.text?.trim() ?? '';
-    if (!text) {
-      throw new Error('AI_REPORT_EMPTY_RESPONSE');
-    }
+    const text = await generateOpenAiText(prompt, 'json');
 
     return NextResponse.json({ report: parseReportJson(text) });
   } catch (error) {

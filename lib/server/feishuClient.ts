@@ -4,6 +4,7 @@ import type { FeishuCredentials } from '@/lib/server/feishuRepository';
 type JsonObject = Record<string, any>;
 
 const FEISHU_API_BASE = 'https://open.feishu.cn/open-apis';
+const FEISHU_REQUEST_TIMEOUT_MS = 15_000;
 
 let cachedToken: { token: string; expiresAt: number; appId: string } | null = null;
 
@@ -30,6 +31,13 @@ export interface FeishuBitableRecordPage {
   total?: number;
 }
 
+export type FeishuBitableWritableFields = Record<string, string | number | boolean | null | string[]>;
+
+export interface FeishuBitableWriteResult {
+  recordId: string;
+  fields: JsonObject;
+}
+
 function maskFeishuPath(path?: string) {
   return path
     ?.split('?')[0]
@@ -43,9 +51,17 @@ function maskFeishuPath(path?: string) {
 async function readJson(response: Response, path?: string) {
   const payload = await response.json().catch(() => null);
   const maskedPath = maskFeishuPath(path);
+  const feishuCode =
+    payload && typeof payload === 'object' && payload.code !== undefined
+      ? `，错误码：${payload.code}`
+      : '';
+  const feishuMessage =
+    payload && typeof payload === 'object' && typeof payload.msg === 'string' && payload.msg
+      ? `，消息：${payload.msg}`
+      : '';
   if (!response.ok) {
     throw new Error(
-      `飞书接口请求失败：${response.status}${maskedPath ? `（接口：${maskedPath}）` : ''}`
+      `飞书接口请求失败：${response.status}${maskedPath ? `（接口：${maskedPath}` : '（'}${feishuCode}${feishuMessage}）`
     );
   }
 
@@ -59,21 +75,52 @@ async function readJson(response: Response, path?: string) {
   return payload as JsonObject;
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit | undefined, path: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, FEISHU_REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      const maskedPath = maskFeishuPath(path);
+      throw new Error(
+        `飞书接口请求超时：${FEISHU_REQUEST_TIMEOUT_MS / 1000} 秒${maskedPath ? `（接口：${maskedPath}）` : ''}`
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function getTenantToken(credentials: FeishuCredentials) {
   const now = Date.now();
   if (cachedToken && cachedToken.appId === credentials.appId && cachedToken.expiresAt - 60_000 > now) {
     return cachedToken.token;
   }
 
-  const response = await fetch(`${FEISHU_API_BASE}/auth/v3/tenant_access_token/internal`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      app_id: credentials.appId,
-      app_secret: credentials.appSecret,
-    }),
-  });
-  const payload = await readJson(response, '/auth/v3/tenant_access_token/internal');
+  const tokenPath = '/auth/v3/tenant_access_token/internal';
+  const response = await fetchWithTimeout(
+    `${FEISHU_API_BASE}${tokenPath}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        app_id: credentials.appId,
+        app_secret: credentials.appSecret,
+      }),
+    },
+    tokenPath
+  );
+  const payload = await readJson(response, tokenPath);
   const token = payload.tenant_access_token;
   if (!token) {
     throw new Error('飞书未返回 tenant_access_token');
@@ -96,10 +143,7 @@ async function feishuFetch(credentials: FeishuCredentials, path: string, init?: 
   if (init?.body || method !== 'GET') {
     headers.set('Content-Type', 'application/json');
   }
-  const response = await fetch(`${FEISHU_API_BASE}${path}`, {
-    ...init,
-    headers,
-  });
+  const response = await fetchWithTimeout(`${FEISHU_API_BASE}${path}`, { ...init, headers }, path);
 
   return readJson(response, path);
 }
@@ -123,6 +167,19 @@ function normalizeRecordFields(record: JsonObject) {
   return record.fields && typeof record.fields === 'object' ? record.fields : record;
 }
 
+function normalizeWriteRecord(payload: JsonObject, fallbackRecordId?: string): FeishuBitableWriteResult {
+  const record = payload?.data?.record ?? payload?.data ?? payload?.record ?? {};
+  const recordId = String(record.record_id ?? record.recordId ?? fallbackRecordId ?? '');
+  if (!recordId) {
+    throw new Error('飞书未返回 record_id');
+  }
+
+  return {
+    recordId,
+    fields: normalizeRecordFields(record),
+  };
+}
+
 function buildQueryString(params: Record<string, string | number | boolean | undefined>) {
   const query = new URLSearchParams();
 
@@ -134,6 +191,17 @@ function buildQueryString(params: Record<string, string | number | boolean | und
 
   const text = query.toString();
   return text ? `?${text}` : '';
+}
+
+function readNextPageToken(payload: JsonObject) {
+  const data = payload?.data;
+  const hasMoreValue = data?.has_more ?? data?.hasMore;
+  const hasMore = hasMoreValue === true || hasMoreValue === 'true';
+  if (!hasMore) {
+    return '';
+  }
+
+  return String(data?.page_token ?? data?.pageToken ?? '');
 }
 
 function isWrongRequestBodyError(error: unknown) {
@@ -203,7 +271,7 @@ export async function readFeishuBitableTables(credentials: FeishuCredentials, ap
   let pageToken = '';
 
   do {
-    const query = buildQueryString({ page_token: pageToken });
+    const query = buildQueryString({ page_size: 100, page_token: pageToken });
     const payload = await feishuFetch(
       credentials,
       `/bitable/v1/apps/${appToken}/tables${query}`
@@ -215,7 +283,7 @@ export async function readFeishuBitableTables(credentials: FeishuCredentials, ap
         name: String(item.name ?? item.table_name ?? '未命名数据表'),
       })).filter((item: FeishuBitableTable) => item.tableId)
     );
-    pageToken = payload?.data?.page_token || '';
+    pageToken = readNextPageToken(payload);
   } while (pageToken);
 
   return tables;
@@ -230,13 +298,13 @@ export async function readFeishuBitableFields(
   let pageToken = '';
 
   do {
-    const query = buildQueryString({ page_token: pageToken });
+    const query = buildQueryString({ page_size: 100, page_token: pageToken });
     const payload = await feishuFetch(
       credentials,
       `/bitable/v1/apps/${appToken}/tables/${tableId}/fields${query}`
     );
     fields.push(...(payload?.data?.items ?? []));
-    pageToken = payload?.data?.page_token || '';
+    pageToken = readNextPageToken(payload);
   } while (pageToken);
 
   return fields;
@@ -284,16 +352,58 @@ export async function searchFeishuBitableRecords(
   }
 
   const items = payload?.data?.items ?? [];
+  const pageToken = readNextPageToken(payload);
 
   return {
     records: items.map((item: JsonObject) => ({
       recordId: String(item.record_id ?? ''),
       fields: normalizeRecordFields(item),
     })),
-    hasMore: Boolean(payload?.data?.has_more),
-    pageToken: payload?.data?.page_token || undefined,
+    hasMore: Boolean(pageToken),
+    pageToken: pageToken || undefined,
     total: typeof payload?.data?.total === 'number' ? payload.data.total : undefined,
   };
+}
+
+export async function createFeishuBitableRecord(
+  credentials: FeishuCredentials,
+  input: {
+    appToken: string;
+    tableId: string;
+    fields: FeishuBitableWritableFields;
+  }
+) {
+  const payload = await feishuFetch(
+    credentials,
+    `/bitable/v1/apps/${input.appToken}/tables/${input.tableId}/records`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ fields: input.fields }),
+    }
+  );
+
+  return normalizeWriteRecord(payload);
+}
+
+export async function updateFeishuBitableRecord(
+  credentials: FeishuCredentials,
+  input: {
+    appToken: string;
+    tableId: string;
+    recordId: string;
+    fields: FeishuBitableWritableFields;
+  }
+) {
+  const payload = await feishuFetch(
+    credentials,
+    `/bitable/v1/apps/${input.appToken}/tables/${input.tableId}/records/${input.recordId}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ fields: input.fields }),
+    }
+  );
+
+  return normalizeWriteRecord(payload, input.recordId);
 }
 
 export async function readFeishuDocText(credentials: FeishuCredentials, source: FeishuSource) {

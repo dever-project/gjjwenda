@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,82 @@ function isValidAiMessage(message: ChatPayload['message']): message is AiTrainin
   );
 }
 
+function useElapsedSeconds(isRunning: boolean) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    setElapsedSeconds(1);
+    const timerId = window.setInterval(() => {
+      setElapsedSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [isRunning]);
+
+  return elapsedSeconds;
+}
+
+function AiAvatar() {
+  return (
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-700">
+      <Bot className="h-4 w-4" />
+    </div>
+  );
+}
+
+function ChatMessageRow({ message }: { message: AiTrainingMessage }) {
+  const isAi = message.role === 'ai';
+
+  return (
+    <div className={`flex items-start gap-3 ${isAi ? 'justify-start' : 'justify-end'}`}>
+      {isAi && <AiAvatar />}
+      <div
+        className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+          isAi
+            ? 'rounded-tl-sm border border-slate-200 bg-white text-slate-700'
+            : 'rounded-tr-sm bg-orange-600 text-white'
+        }`}
+      >
+        <p className="whitespace-pre-wrap">{message.content}</p>
+      </div>
+      {!isAi && (
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-slate-800 text-white">
+          <UserRound className="h-4 w-4" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiExecutionMessage({ elapsedSeconds }: { elapsedSeconds: number }) {
+  return (
+    <div className="flex items-start justify-start gap-3">
+      <AiAvatar />
+      <div
+        className="max-w-[78%] rounded-2xl rounded-tl-sm border border-orange-100 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
+        role="status"
+        aria-live="polite"
+        aria-label={`AI 执行中，已等待 ${elapsedSeconds} 秒`}
+      >
+        <div className="flex items-center gap-3">
+          <span className="font-medium text-slate-800">执行中</span>
+          <span className="text-xs tabular-nums text-slate-500">{elapsedSeconds}秒</span>
+        </div>
+        <div className="mt-2 flex items-center gap-1.5" aria-hidden="true">
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-500" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-500 [animation-delay:120ms]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-500 [animation-delay:240ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AiTrainingSessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const resolvedParams = use(params);
   const router = useRouter();
@@ -49,6 +125,7 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const [isRetryingAiReply, setIsRetryingAiReply] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [failedAiReplySessionId, setFailedAiReplySessionId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const session = aiTrainingSessions.find((item) => item.id === resolvedParams.sessionId);
   const scenario = aiTrainingScenarios.find((item) => item.id === session?.scenarioId);
@@ -56,11 +133,17 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
   const canAccess = Boolean(currentUser?.role === 'admin' || isOwner);
   const canInteract = Boolean(isOwner && session?.status === 'in_progress');
   const trimmedInput = input.trim();
+  const isWaitingForAiReply = isSending || isRetryingAiReply;
+  const aiReplyElapsedSeconds = useElapsedSeconds(isWaitingForAiReply);
 
   const sortedMessages = useMemo(
     () => [...(session?.messages ?? [])].sort((a, b) => a.createdAt - b.createdAt),
     [session?.messages]
   );
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [sortedMessages.length, isWaitingForAiReply]);
 
   const getLatestSession = () =>
     useStore.getState().aiTrainingSessions.find((item) => item.id === resolvedParams.sessionId) ?? session;
@@ -267,13 +350,21 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
 
       <main className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-slate-200 bg-white px-8 py-4">
-          <div className="mx-auto grid max-w-5xl gap-4 text-sm text-slate-600 md:grid-cols-[1fr_1fr]">
+          <div className="mx-auto grid max-w-5xl gap-4 text-sm text-slate-600 md:grid-cols-4">
             <div>
               <div className="mb-1 text-xs font-semibold text-slate-500">场景说明</div>
               <p className="line-clamp-2">{scenario.description || '暂无说明'}</p>
             </div>
             <div>
-              <div className="mb-1 text-xs font-semibold text-slate-500">员工任务</div>
+              <div className="mb-1 text-xs font-semibold text-slate-500">AI 扮演</div>
+              <p className="line-clamp-2">{scenario.aiRole}</p>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-semibold text-slate-500">你扮演</div>
+              <p className="line-clamp-2">{scenario.traineeRole || '员工'}</p>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-semibold text-slate-500">训练目标</div>
               <p className="line-clamp-2">{scenario.traineeTask}</p>
             </div>
           </div>
@@ -281,36 +372,11 @@ export default function AiTrainingSessionPage({ params }: { params: Promise<{ se
 
         <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto flex max-w-4xl flex-col gap-4">
-            {sortedMessages.map((message) => {
-              const isAi = message.role === 'ai';
-
-              return (
-                <div
-                  key={message.id}
-                  className={`flex items-start gap-3 ${isAi ? 'justify-start' : 'justify-end'}`}
-                >
-                  {isAi && (
-                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-700">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
-                      isAi
-                        ? 'rounded-tl-sm border border-slate-200 bg-white text-slate-700'
-                        : 'rounded-tr-sm bg-orange-600 text-white'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                  </div>
-                  {!isAi && (
-                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-slate-800 text-white">
-                      <UserRound className="h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {sortedMessages.map((message) => (
+              <ChatMessageRow key={message.id} message={message} />
+            ))}
+            {isWaitingForAiReply && <AiExecutionMessage elapsedSeconds={aiReplyElapsedSeconds} />}
+            <div ref={messagesEndRef} />
           </div>
         </div>
 

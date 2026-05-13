@@ -13,10 +13,23 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { extractDocxText } from '@/lib/ai-training/documents';
 import {
   createDocxExamConfigs,
+  createPlainTextExamConfig,
   parseConfigRows,
+  parsePlainTextQuestions,
   parseQuestionRows,
   parseTeacherDocxQuestions,
+  QUESTION_EXAM_GROUPS,
 } from '@/lib/training/questionImport';
+
+function matchesExamGroup(config: ExamConfig, examGroup: string) {
+  return config.stage === examGroup || config.name === `${examGroup}认证`;
+}
+
+function getQuestionCategoryIds(questions: Question[]) {
+  return Array.from(
+    new Set(questions.map((question) => question.categoryId).filter(Boolean))
+  ) as string[];
+}
 
 export default function QuestionsPage() {
   const {
@@ -30,6 +43,7 @@ export default function QuestionsPage() {
     clearQuestionBank,
   } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [targetExamGroup, setTargetExamGroup] = useState(QUESTION_EXAM_GROUPS[0]);
   const [isClearOpen, setIsClearOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,8 +59,50 @@ export default function QuestionsPage() {
     }
 
     const newConfigs = createDocxExamConfigs(file.name, newQuestions, `ec_docx_${Date.now()}`);
-    importQuestionData([...questions, ...newQuestions], [...newConfigs, ...examConfigs]);
+    await importQuestionData([...questions, ...newQuestions], [...newConfigs, ...examConfigs]);
     toast.success(`成功从 DOCX 导入 ${newQuestions.length} 道题目，并生成 ${newConfigs.length} 份考试配置`);
+  };
+
+  const handlePlainTextUpload = async (file: File) => {
+    const newQuestions = parsePlainTextQuestions(await file.text(), {
+      idPrefix: `txt_${Date.now()}`,
+      examGroup: targetExamGroup,
+    });
+
+    if (newQuestions.length === 0) {
+      toast.error('未从 TXT 中解析到题库数据');
+      return;
+    }
+
+    const mergedQuestions = [...questions, ...newQuestions];
+    const groupQuestions = mergedQuestions.filter((question) => question.examGroup === targetExamGroup);
+    const existingConfig = examConfigs.find((config) => matchesExamGroup(config, targetExamGroup));
+    const nextExamConfigs = existingConfig
+      ? examConfigs.map((config) =>
+          config.id === existingConfig.id
+            ? {
+                ...config,
+                categoryIds: getQuestionCategoryIds(groupQuestions),
+                suggestedCount: groupQuestions.length,
+                feishuUsage: '从 TXT 题库导入补充',
+              }
+            : config
+        )
+      : [
+          createPlainTextExamConfig(
+            targetExamGroup,
+            groupQuestions,
+            `ec_txt_${Date.now()}`
+          ),
+          ...examConfigs,
+        ];
+
+    await importQuestionData(mergedQuestions, nextExamConfigs);
+    toast.success(
+      `成功从 TXT 导入 ${newQuestions.length} 道题目到「${targetExamGroup}」${
+        existingConfig ? '，已更新对应考试配置题数' : '，并生成 1 份考试配置'
+      }`
+    );
   };
 
   const handleSpreadsheetUpload = async (file: File) => {
@@ -72,7 +128,7 @@ export default function QuestionsPage() {
     }
 
     if (newQuestions.length > 0 || newConfigs.length > 0) {
-      importQuestionData(
+      await importQuestionData(
         newQuestions.length > 0 ? [...questions, ...newQuestions] : questions,
         newConfigs.length > 0 ? newConfigs : examConfigs
       );
@@ -94,8 +150,11 @@ export default function QuestionsPage() {
     if (!file) return;
 
     try {
-      if (file.name.toLowerCase().endsWith('.docx')) {
+      const lowerFileName = file.name.toLowerCase();
+      if (lowerFileName.endsWith('.docx')) {
         await handleDocxUpload(file);
+      } else if (lowerFileName.endsWith('.txt')) {
+        await handlePlainTextUpload(file);
       } else {
         await handleSpreadsheetUpload(file);
       }
@@ -145,11 +204,25 @@ export default function QuestionsPage() {
         <div className="flex items-center gap-4">
           <input 
             type="file" 
-            accept=".xlsx, .xls, .csv, .docx" 
+            accept=".xlsx, .xls, .csv, .docx, .txt"
             className="hidden" 
             ref={fileInputRef} 
             onChange={handleUpload}
           />
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <span>TXT导入到</span>
+            <select
+              value={targetExamGroup}
+              onChange={(event) => setTargetExamGroup(event.target.value)}
+              className="h-8 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+            >
+              {QUESTION_EXAM_GROUPS.map((examGroup) => (
+                <option key={examGroup} value={examGroup}>
+                  {examGroup}
+                </option>
+              ))}
+            </select>
+          </label>
           <Button variant="default" onClick={() => fileInputRef.current?.click()} className="bg-orange-600 hover:bg-orange-700 text-white rounded-full px-4 h-8 text-xs font-semibold">
             <Upload className="mr-2 h-3.5 w-3.5" />
             导入题库/考试数据

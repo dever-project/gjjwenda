@@ -1,5 +1,7 @@
 # CRM 推送接口对接文档
 
+e2f2e70cb973e94756fe6dec8c5bc73e25044b9b830184a8e360675a67c25225
+
 版本：v1.0  
 更新时间：2026-05-06
 
@@ -28,19 +30,21 @@ https://<你的系统域名>/api/crm/push
 
 ## 3. 鉴权说明
 
-当前版本接口未内置鉴权参数。
+接口使用固定 Token 请求头鉴权，Token 不写死在代码里，由服务端环境变量配置：
 
-如果该接口需要暴露给外部系统，建议上线时在网关或反向代理层增加以下任一保护：
+```bash
+CRM_PUSH_TOKEN="一段足够长的随机字符串"
+```
 
-- IP 白名单
-- 固定 Token 请求头
-- 签名校验
-
-如需系统内置 Token 校验，可约定请求头，例如：
+对接方每次推送都必须携带请求头：
 
 ```http
 X-CRM-PUSH-TOKEN: <token>
 ```
+
+如果服务端未配置 `CRM_PUSH_TOKEN`，接口会拒绝写入并返回 `500`；如果请求头缺失或不匹配，返回 `401`。
+
+如果该接口需要暴露给外部系统，仍建议在网关或反向代理层叠加 IP 白名单。
 
 ## 4. 请求格式
 
@@ -119,6 +123,7 @@ visitor_static_id
 ```bash
 curl -X POST "https://<你的系统域名>/api/crm/push" \
   -H "Content-Type: application/json" \
+  -H "X-CRM-PUSH-TOKEN: <token>" \
   -d '{
     "name": "张三",
     "mobile": "13800138000",
@@ -239,6 +244,7 @@ curl -X POST "https://<你的系统域名>/api/crm/push" \
 ```bash
 curl -X POST "https://<你的系统域名>/api/crm/push" \
   -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "X-CRM-PUSH-TOKEN: <token>" \
   --data-urlencode "name=张三" \
   --data-urlencode "mobile=13800138000" \
   --data-urlencode "chatId=chat_202605060001" \
@@ -250,6 +256,7 @@ curl -X POST "https://<你的系统域名>/api/crm/push" \
 ```bash
 curl -X POST "https://<你的系统域名>/api/crm/push" \
   -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "X-CRM-PUSH-TOKEN: <token>" \
   --data-urlencode 'data={"name":"张三","mobile":"13800138000","chatId":"chat_202605060001"}'
 ```
 
@@ -288,7 +295,17 @@ curl -X POST "https://<你的系统域名>/api/crm/push" \
 
 Excel 中其他字段无需额外对接，原样传入即可，系统会完整保存到 `payload_json`。
 
-## 11. 错误响应
+## 11. 管理员后台查看
+
+管理员登录后，在左侧菜单进入：
+
+```text
+管理模块 -> CRM记录
+```
+
+页面会展示 `crm_records` 中的入库记录，并支持按客户姓名、手机号、城市、项目、渠道、`chatId` 等字段搜索。点击“详情”可以查看本次推送保存的原始 JSON 字段。
+
+## 12. 错误响应
 
 ### 请求体不是合法 JSON
 
@@ -320,6 +337,26 @@ HTTP 状态码：`400`
 }
 ```
 
+### Token 缺失或不正确
+
+HTTP 状态码：`401`
+
+```json
+{
+  "error": "CRM 推送 Token 无效"
+}
+```
+
+### 服务端未配置 Token
+
+HTTP 状态码：`500`
+
+```json
+{
+  "error": "CRM 推送 Token 未配置"
+}
+```
+
 ### 数据库写入失败
 
 HTTP 状态码：`500`
@@ -330,13 +367,50 @@ HTTP 状态码：`500`
 }
 ```
 
-## 12. 联调检查清单
+## 13. 联调检查清单
 
 对接方联调时请确认：
 
 1. 请求地址是否为部署后的完整域名加 `/api/crm/push`。
 2. 推荐使用 `POST`，不要使用 `GET` 推送数据。
-3. 推荐 `Content-Type: application/json`。
-4. 至少传一个客户联系方式字段，例如 `mobile` 或 `tel`。
-5. 建议传稳定唯一 ID，例如 `chatId` 或 `recordId`；如果没有唯一 ID，至少传 `mobile` 用于手机号去重。
-6. 收到 `success: true` 且 `count > 0` 即表示系统已接收并写入数据库。
+3. 确认请求头已携带 `X-CRM-PUSH-TOKEN`，并与服务端 `CRM_PUSH_TOKEN` 一致。
+4. 推荐 `Content-Type: application/json`。
+5. 至少传一个客户联系方式字段，例如 `mobile` 或 `tel`。
+6. 建议传稳定唯一 ID，例如 `chatId` 或 `recordId`；如果没有唯一 ID，至少传 `mobile` 用于手机号去重。
+7. 收到 `success: true` 且 `count > 0` 即表示系统已接收并写入数据库。
+
+## 14. 本地接口入库测试脚本
+
+先启动本地服务：
+
+```bash
+npm run dev
+```
+
+再执行 CRM 推送入库测试：
+
+```bash
+CRM_PUSH_TOKEN=<token> npm run test:crm-push
+```
+
+脚本默认请求：
+
+```text
+http://localhost:3000/api/crm/push
+```
+
+如需测试部署环境或其他端口，可传入地址：
+
+```bash
+CRM_PUSH_TOKEN=<token> npm run test:crm-push -- http://localhost:3100
+```
+
+脚本会提交一条带唯一 `chatId` 的测试数据，然后直接查询 SQLite 的 `crm_records` 表，确认这条记录已经入库。
+
+如果数据库路径不是默认的 `data/gjj.sqlite`，可指定：
+
+```bash
+CRM_PUSH_TOKEN=<token> SQLITE_DB_PATH=/path/to/gjj.sqlite npm run test:crm-push
+```
+
+测试通过时会输出接口返回的 `crm_records.id`、客户姓名和手机号。
